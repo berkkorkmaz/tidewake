@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -24,6 +25,8 @@ type Harness struct {
 	MarkerEnv       []string `json:"markerEnv"`
 	AgentPaths      []string `json:"agentPaths"`
 	WorktreePaths   []string `json:"worktreePaths"`
+	// SessionPathPattern captures a session id from a scratch path, as group 1.
+	SessionPathPattern string `json:"sessionPathPattern,omitempty"`
 }
 
 // Issue is one known leak or cleanup bug.
@@ -51,6 +54,15 @@ func Parse(data []byte) (*Pack, error) {
 	var p Pack
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("rules pack: %w", err)
+	}
+	for name, h := range p.Harnesses {
+		if h.SessionPathPattern == "" {
+			continue
+		}
+		re, err := regexp.Compile(h.SessionPathPattern)
+		if err != nil || re.NumSubexp() != 1 {
+			return nil, fmt.Errorf("rules pack: %s sessionPathPattern must compile with one group", name)
+		}
 	}
 	for i, is := range p.KnownIssues {
 		if _, ok := p.Harnesses[is.Harness]; !ok {

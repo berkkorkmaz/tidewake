@@ -37,6 +37,10 @@ not json
 	if items[2].Suggest != "docker builder prune --max-used-space 10gb" {
 		t.Errorf("build cache: %+v", items[2])
 	}
+	containers := ParseDockerDF([]byte(`{"Reclaimable":"3.5GB (95%)","Size":"3.7GB","Type":"Containers"}`))
+	if containers[0].Reclaimable != 0 || containers[0].Suggest != "" {
+		t.Errorf("stopped containers must never be suggested for removal: %+v", containers[0])
+	}
 }
 
 func write(t *testing.T, path string, n int) {

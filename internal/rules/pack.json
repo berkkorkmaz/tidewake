@@ -9,7 +9,8 @@
       "sessionEnv": "CLAUDE_CODE_SESSION_ID",
       "markerEnv": ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"],
       "agentPaths": ["/private/tmp/claude-", "/tmp/claude-", "/.claude/"],
-      "worktreePaths": ["/.claude/worktrees/"]
+      "worktreePaths": ["/.claude/worktrees/"],
+      "sessionPathPattern": "/claude-[0-9]+/[^/]+/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/"
     },
     "codex": {
       "label": "Codex",
@@ -28,7 +29,7 @@
     {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/79702",
      "title": "SessionEnd hooks do not fire on `claude -p` exit", "covers": "scan does not depend on hooks"},
     {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/71424",
-     "title": "Claude Desktop local-agent sessions leak claude-code node processes", "covers": "scan lists them as leftovers of the ended session"},
+     "title": "Claude Desktop local-agent sessions leak claude-code node processes"},
     {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/80885",
      "title": "Scheduled-task sessions leak orphaned background processes", "covers": "scan lists them as leftovers of the ended session"},
     {"harness": "claude", "status": "fixed", "fixedIn": "2.1.208", "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",

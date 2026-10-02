@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/berkkorkmaz/tidewake/internal/shell"
 )
 
 // Kind is the verdict for a worktree.
@@ -196,7 +198,7 @@ func evaluate(ctx context.Context, w *Worktree, opts Options) {
 	} else if err != nil {
 		w.Kind = Dangling
 		w.Reasons = []string{"directory no longer exists"}
-		w.Suggest = "git -C " + shellQuote(w.Repo) + " worktree prune"
+		w.Suggest = "git -C " + shell.Quote(w.Repo) + " worktree prune"
 		return
 	}
 	w.SizeBytes, w.RegenBytes = measure(w.Path)
@@ -226,13 +228,18 @@ func evaluate(ctx context.Context, w *Worktree, opts Options) {
 	} else if !pushed {
 		w.Reasons = append(w.Reasons, "has commits not on any remote")
 	}
+	// Removing a worktree deletes its HEAD reflog, the only pointer to commits
+	// made here and then left behind by a checkout.
+	if reason := reflogOnlyCommits(ctx, w.Path); reason != "" {
+		w.Reasons = append(w.Reasons, reason)
+	}
 	if w.Idle < opts.Idle {
 		w.Reasons = append(w.Reasons, "touched "+humanDuration(w.Idle)+" ago")
 	}
 
 	if len(w.Reasons) == 0 {
 		w.Kind = Removable
-		w.Suggest = "git -C " + shellQuote(w.Repo) + " worktree remove " + shellQuote(w.Path)
+		w.Suggest = "git -C " + shell.Quote(w.Repo) + " worktree remove " + shell.Quote(w.Path)
 		return
 	}
 	w.Kind = Keep
@@ -274,6 +281,55 @@ func nameSome(paths []string) string {
 		return strings.Join(paths, ", ")
 	}
 	return strings.Join(paths[:maxNamedIgnored], ", ") + fmt.Sprintf(" and %d more", len(paths)-maxNamedIgnored)
+}
+
+// maxReflogChecks caps the commits checked per worktree; more than this keeps it.
+const maxReflogChecks = 25
+
+// commitActions are reflog subjects that record a newly created commit.
+var commitActions = []string{"commit", "merge", "cherry-pick", "rebase"}
+
+// reflogOnlyCommits returns a reason when commits created in this worktree
+// are reachable from no branch, tag or remote.
+func reflogOnlyCommits(ctx context.Context, dir string) string {
+	out, err := git(ctx, dir, "reflog", "--format=%H %gs", "HEAD")
+	if err != nil {
+		return "" // a worktree with no reflog has no commits to lose
+	}
+	seen := map[string]bool{}
+	var shas []string
+	for _, line := range strings.Split(out, "\n") {
+		sha, subject, ok := strings.Cut(line, " ")
+		if !ok || seen[sha] || !isCommitAction(subject) {
+			continue
+		}
+		seen[sha] = true
+		shas = append(shas, sha)
+	}
+	if len(shas) > maxReflogChecks {
+		return fmt.Sprintf("%d commits made here; check `git reflog` before removing", len(shas))
+	}
+	lost := 0
+	for _, sha := range shas {
+		ref, err := git(ctx, dir, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", sha,
+			"refs/heads", "refs/remotes", "refs/tags")
+		if err != nil || ref == "" {
+			lost++
+		}
+	}
+	if lost == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d commit(s) made here are on no branch, tag or remote", lost)
+}
+
+func isCommitAction(subject string) bool {
+	for _, a := range commitActions {
+		if strings.HasPrefix(subject, a) {
+			return true
+		}
+	}
+	return false
 }
 
 // onRemote reports whether HEAD is contained in some remote-tracking branch,
@@ -364,11 +420,4 @@ func humanDuration(d time.Duration) string {
 		return strconv.Itoa(int(d.Hours())) + "h"
 	}
 	return strconv.Itoa(int(d.Hours()/24)) + "d"
-}
-
-func shellQuote(s string) string {
-	if s != "" && !strings.ContainsAny(s, " '\"$`\\!*?[]{}()<>|&;#~") {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

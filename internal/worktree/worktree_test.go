@@ -195,15 +195,6 @@ func TestParsePorcelainSkipsMain(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	cases := map[string]string{"/a/b": "/a/b", "/a b": "'/a b'", "it's": `'it'\''s'`}
-	for in, want := range cases {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestParseStatus(t *testing.T) {
 	out := " M a.txt\n!! node_modules/\n!! .env\n!! flows/.pytest_cache/\n!! data/dump.parquet\n!! pkg/__pycache__/x.pyc\n!! .DS_Store\n"
 	dirty, kept := ParseStatus(out)
@@ -236,6 +227,35 @@ func TestIgnoredEnvBlocksRemoval(t *testing.T) {
 	ageAdmin(t, wt, 7*24*time.Hour)
 	g := scan(t, r, nil)["withenv"]
 	if g.Kind != Keep || !strings.Contains(strings.Join(g.Reasons, ";"), ".env") {
+		t.Fatalf("got kind=%s reasons=%v", g.Kind, g.Reasons)
+	}
+}
+
+func TestCommitsLeftOnlyInReflogBlockRemoval(t *testing.T) {
+	r := newRepo(t)
+	wt := r.worktree(t, "detached")
+	if err := os.WriteFile(filepath.Join(wt, "a.txt"), []byte("agent work"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, wt, "commit", "-q", "-am", "agent commit")
+	run(t, wt, "checkout", "-q", "--detach", "origin/main") // HEAD is pushed again, the commit is orphaned
+	ageAdmin(t, wt, 7*24*time.Hour)
+	g := scan(t, r, nil)["detached"]
+	if g.Kind != Keep || !strings.Contains(strings.Join(g.Reasons, ";"), "on no branch, tag or remote") {
+		t.Fatalf("got kind=%s reasons=%v", g.Kind, g.Reasons)
+	}
+}
+
+func TestPushedCommitInReflogIsFine(t *testing.T) {
+	r := newRepo(t)
+	wt := r.worktree(t, "pushed")
+	if err := os.WriteFile(filepath.Join(wt, "a.txt"), []byte("shared work"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, wt, "commit", "-q", "-am", "pushed commit")
+	run(t, wt, "push", "-q", "origin", "HEAD:refs/heads/feature")
+	ageAdmin(t, wt, 7*24*time.Hour)
+	if g := scan(t, r, nil)["pushed"]; g.Kind != Removable {
 		t.Fatalf("got kind=%s reasons=%v", g.Kind, g.Reasons)
 	}
 }

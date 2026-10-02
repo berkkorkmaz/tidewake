@@ -10,7 +10,7 @@ import (
 func TestParsePSKeepsCommandSpacingAndStart(t *testing.T) {
 	out := []byte("  501     1  7657   501 S      71680 Tue Sep 29 07:55:55 2026     /tmp/venv/bin/python -m http.server  8000\n" +
 		"  502   501   502   501 Ss       100 Fri Oct  2 15:12:34 2026     /Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new\n")
-	procs, err := ParsePS(out, time.UTC)
+	procs, _, err := ParsePS(out, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,9 +29,15 @@ func TestParsePSKeepsCommandSpacingAndStart(t *testing.T) {
 	}
 }
 
-func TestParsePSRejectsTruncatedLine(t *testing.T) {
-	if _, err := ParsePS([]byte("501 1 7657 501 S 100\n"), time.UTC); err == nil {
-		t.Fatal("expected an error for a line without lstart and command")
+func TestParsePSSkipsBadLinesButFailsWhenNothingParses(t *testing.T) {
+	good := "  501     1  7657   501 S      100 Tue Sep 29 07:55:55 2026     python x.py\n"
+	localized := "    1     0     1     0 Ss    9000 Cum  2 Eki 15:41:40 2026     /sbin/launchd\n"
+	procs, skipped, err := ParsePS([]byte(localized+good), time.UTC)
+	if err != nil || skipped != 1 || procs[501] == nil {
+		t.Fatalf("procs=%v skipped=%d err=%v", procs, skipped, err)
+	}
+	if _, _, err := ParsePS([]byte(localized), time.UTC); err == nil {
+		t.Fatal("expected an error when no line parses")
 	}
 }
 
@@ -113,8 +119,11 @@ func TestSnapshotTreeHelpers(t *testing.T) {
 	}
 	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	s.Procs[10].Started = started
-	if !s.AliveSince(10, started) || s.AliveSince(10, started.Add(time.Second)) {
-		t.Fatal("AliveSince must detect PID reuse")
+	if !s.AliveSince(10, started) || !s.AliveSince(10, started.Add(time.Second)) {
+		t.Fatal("AliveSince must allow ps's one-second resolution")
+	}
+	if s.AliveSince(10, started.Add(time.Hour)) || s.AliveSince(10, started.Add(-3*time.Hour)) {
+		t.Fatal("AliveSince must detect PID reuse and time-zone skew")
 	}
 }
 

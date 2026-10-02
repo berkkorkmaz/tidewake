@@ -56,8 +56,12 @@ func (s *Snapshot) Get(pid int) *Process { return s.Procs[pid] }
 // Alive reports whether pid exists in the snapshot.
 func (s *Snapshot) Alive(pid int) bool { return s.Procs[pid] != nil }
 
-// AliveSince reports whether pid exists and started at started.
-// It guards against PID reuse when a session file outlives its process.
+// StartTolerance absorbs ps's one-second start-time resolution.
+const StartTolerance = 2 * time.Second
+
+// AliveSince reports whether pid exists and started at started (within
+// StartTolerance). It guards against PID reuse when a state file outlives its
+// process. A zero started time cannot be checked and counts as alive.
 func (s *Snapshot) AliveSince(pid int, started time.Time) bool {
 	p := s.Procs[pid]
 	if p == nil {
@@ -66,7 +70,8 @@ func (s *Snapshot) AliveSince(pid int, started time.Time) bool {
 	if started.IsZero() || p.Started.IsZero() {
 		return true
 	}
-	return p.Started.Equal(started)
+	d := p.Started.Sub(started)
+	return d <= StartTolerance && d >= -StartTolerance
 }
 
 // Ancestors returns the parent chain of pid, nearest first, excluding launchd.

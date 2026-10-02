@@ -35,9 +35,11 @@ var AttributionEnv = map[string]bool{
 	"CODEX_SESSION_ID":          true,
 }
 
-// ParsePS parses the output of `ps` run with PSArgs.
-func ParsePS(out []byte, loc *time.Location) (map[int]*Process, error) {
+// ParsePS parses the output of `ps` run with PSArgs in the C locale. A line
+// it cannot parse is skipped and counted, so one odd process never stops a scan.
+func ParsePS(out []byte, loc *time.Location) (map[int]*Process, int, error) {
 	procs := map[int]*Process{}
+	skipped := 0
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
@@ -47,11 +49,15 @@ func ParsePS(out []byte, loc *time.Location) (map[int]*Process, error) {
 		}
 		p, err := parsePSLine(line, loc)
 		if err != nil {
-			return nil, err
+			skipped++
+			continue
 		}
 		procs[p.PID] = p
 	}
-	return procs, sc.Err()
+	if len(procs) == 0 && skipped > 0 {
+		return nil, skipped, fmt.Errorf("could not parse any of %d ps lines", skipped)
+	}
+	return procs, skipped, sc.Err()
 }
 
 func parsePSLine(line string, loc *time.Location) (*Process, error) {
@@ -116,6 +122,17 @@ func ParseLsofPathByPID(out []byte) map[int]string {
 		}
 	}
 	return res
+}
+
+// ParseLsofPaths returns every name field in `lsof -F pn` output.
+func ParseLsofPaths(out []byte) []string {
+	var paths []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "n") && len(line) > 1 {
+			paths = append(paths, line[1:])
+		}
+	}
+	return paths
 }
 
 // ParseLsofPorts parses `lsof -F pn -iTCP -sTCP:LISTEN` into pid -> ports.

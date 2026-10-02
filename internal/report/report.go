@@ -38,7 +38,7 @@ func Scan(w io.Writer, r *scan.Result, opts Options) {
 	p.totals(r)
 	p.sources(r.Sources)
 	p.line("")
-	p.line("Nothing was changed: scan is read-only. Review each command before running it.")
+	p.line("Nothing was changed: scan is read-only. Commands use PIDs from this scan; rescan before running them later.")
 }
 
 type printer struct {
@@ -49,10 +49,14 @@ type printer struct {
 func (p printer) line(format string, a ...any) { fmt.Fprintf(p.w, format+"\n", a...) }
 
 func (p printer) path(s string) string {
-	if p.home != "" && strings.HasPrefix(s, p.home) {
-		return "~" + strings.TrimPrefix(s, p.home)
+	if p.home == "" {
+		return s
 	}
-	return s
+	if s == p.home {
+		return "~"
+	}
+	// Match whole path segments so /Users/bobby is not shortened for home /Users/bob.
+	return strings.ReplaceAll(s, p.home+"/", "~/")
 }
 
 func (p printer) processes(r *scan.Result, all bool) {
@@ -310,10 +314,11 @@ func Doctor(w io.Writer, r doctor.Report) {
 
 func (p printer) truncate(s string) string {
 	s = p.path(s)
-	if len(s) <= commandWidth {
+	r := []rune(s)
+	if len(r) <= commandWidth {
 		return s
 	}
-	return s[:commandWidth-1] + "…"
+	return string(r[:commandWidth-1]) + "…"
 }
 
 func session(f attrib.Finding) string {

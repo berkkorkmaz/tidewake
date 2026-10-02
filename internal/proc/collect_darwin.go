@@ -26,7 +26,10 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 	run := func(name string, args ...string) <-chan result {
 		ch := make(chan result, 1)
 		go func() {
-			out, err := exec.CommandContext(ctx, name, args...).Output()
+			cmd := exec.CommandContext(ctx, name, args...)
+			// ps prints localized month names otherwise (e.g. "Eki" under tr_TR).
+			cmd.Env = append(os.Environ(), "LC_ALL=C")
+			out, err := cmd.Output()
 			ch <- result{out, err}
 		}()
 		return ch
@@ -41,9 +44,12 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 	if ps.err != nil {
 		return nil, fmt.Errorf("ps: %w", ps.err)
 	}
-	procs, err := ParsePS(ps.out, time.Local)
+	procs, skipped, err := ParsePS(ps.out, time.Local)
 	if err != nil {
 		return nil, err
+	}
+	if skipped > 0 && os.Getenv("TIDEWAKE_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "tidewake:   skipped %d unparsable ps lines\n", skipped)
 	}
 	// lsof exits 1 when some processes are unreadable; partial output is still valid.
 	cwds := ParseLsofPathByPID((<-cwdCh).out)

@@ -31,6 +31,6 @@ func Load(ctx context.Context, opts Options, snap *proc.Snapshot, pack *rules.Pa
 	codexH := pack.Harnesses[codex]
 	running := AnyRunning(snap, func(p *proc.Process) bool { return codexH.IsHarnessProcess(p.Name(), p.Command) })
 	st.Sources["codex threads db"] = readCodexThreads(ctx, st, opts.Run, opts.CodexHome, running, opts.Now)
-	st.Sources["codex chat_processes.json"] = readCodexChatProcesses(st, opts.CodexHome)
+	st.Sources["codex chat_processes.json"] = readCodexChatProcesses(st, opts.CodexHome, snap)
 	return st
 }

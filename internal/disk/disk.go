@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/berkkorkmaz/tidewake/internal/harness"
+	"github.com/berkkorkmaz/tidewake/internal/shell"
 )
 
 // Item is one line of the disk report.
@@ -34,7 +35,9 @@ const (
 
 // CodexPackages finds Codex releases other than the one `current` points to.
 // A release a running process was started from is never suggested.
-func CodexPackages(codexHome string, runningCommands []string) []Item {
+// runningPaths holds running command lines and resolved executable paths,
+// since a process started through `current/` does not name its release.
+func CodexPackages(codexHome string, runningPaths []string) []Item {
 	pkgs, err := filepath.Glob(filepath.Join(codexHome, "packages", "*"))
 	if err != nil {
 		return nil
@@ -44,13 +47,13 @@ func CodexPackages(codexHome string, runningCommands []string) []Item {
 		current, _ := filepath.EvalSymlinks(filepath.Join(pkg, "current"))
 		releases, _ := filepath.Glob(filepath.Join(pkg, "releases", "*"))
 		for _, rel := range releases {
-			if resolved, _ := filepath.EvalSymlinks(rel); resolved == current || inUse(rel, runningCommands) {
+			if resolved, _ := filepath.EvalSymlinks(rel); resolved == current || inUse(rel, runningPaths) {
 				continue
 			}
 			size := DirSize(rel)
 			items = append(items, Item{
 				Category: "codex old release", Path: rel, Bytes: size, Reclaimable: size,
-				Suggest: "trash " + quote(rel),
+				Suggest: "trash " + shell.Quote(rel),
 				Note:    "not the current release and no running process uses it",
 			})
 		}
@@ -58,8 +61,8 @@ func CodexPackages(codexHome string, runningCommands []string) []Item {
 	return items
 }
 
-func inUse(dir string, commands []string) bool {
-	for _, c := range commands {
+func inUse(dir string, paths []string) bool {
+	for _, c := range paths {
 		if strings.Contains(c, dir+"/") {
 			return true
 		}
@@ -114,8 +117,11 @@ func ParseDockerDF(out []byte) []Item {
 		switch row.Type {
 		case "Images":
 			item.Suggest = "docker image prune -a --filter until=" + dockerKeepFor
+			item.Note = "Docker's figure assumes every unused image goes; the week filter frees less"
 		case "Containers":
-			item.Suggest = "docker container prune --filter until=" + dockerKeepFor
+			// A stopped container's writable layer can hold data, so this stays a review item.
+			item.Reclaimable = 0
+			item.Note = "stopped containers keep their writable layer; review with `docker ps -a -f status=exited`"
 		case "Build Cache":
 			item.Suggest = "docker builder prune --max-used-space " + dockerCacheBudget
 		case "Local Volumes":
@@ -164,11 +170,4 @@ func DirSize(root string) int64 {
 		return nil
 	})
 	return total
-}
-
-func quote(s string) string {
-	if !strings.ContainsAny(s, " '\"$`\\") {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

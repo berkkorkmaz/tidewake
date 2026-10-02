@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	stage("worktrees")
 
-	res.Disk = append(res.Disk, disk.CodexPackages(opts.CodexHome, commands(snap))...)
+	res.Disk = append(res.Disk, disk.CodexPackages(opts.CodexHome, runningPaths(ctx, snap, opts))...)
 	stage("codex pkgs")
 	if items, err := disk.Docker(ctx, opts.Run); err == nil {
 		res.Disk = append(res.Disk, items...)
@@ -167,10 +168,24 @@ func ownerPaths(pack *rules.Pack) map[string][]string {
 	return out
 }
 
-func commands(snap *proc.Snapshot) []string {
+// runningPaths returns every command line plus the real executable of any
+// process launched through a `current` symlink, which hides its release.
+func runningPaths(ctx context.Context, snap *proc.Snapshot, opts Options) []string {
 	out := make([]string, 0, len(snap.Procs))
+	var viaCurrent []string
 	for _, p := range snap.Procs {
 		out = append(out, p.Command)
+		if strings.Contains(p.Command, filepath.Join(opts.CodexHome, "packages")) && strings.Contains(p.Command, "/current/") {
+			viaCurrent = append(viaCurrent, strconv.Itoa(p.PID))
+		}
 	}
-	return out
+	if len(viaCurrent) == 0 {
+		return out
+	}
+	txt, err := opts.Run(ctx, "lsof", "-nP", "-w", "-a", "-d", "txt", "-p", strings.Join(viaCurrent, ","), "-F", "pn")
+	if err != nil && len(txt) == 0 {
+		// Cannot tell which release they run: report every release as in use.
+		return append(out, filepath.Join(opts.CodexHome, "packages")+"/")
+	}
+	return append(out, proc.ParseLsofPaths(txt)...)
 }

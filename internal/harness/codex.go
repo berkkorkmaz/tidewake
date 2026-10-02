@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/berkkorkmaz/tidewake/internal/proc"
@@ -29,16 +31,26 @@ type codexThread struct {
 type codexChatProcess struct {
 	OSPid          int    `json:"osPid"`
 	ConversationID string `json:"conversationId"`
+	StartedAtMs    int64  `json:"startedAtMs"`
 }
 
-// codexStateDB returns the newest ~/.codex/state_<n>.sqlite.
+// codexStateDB returns the ~/.codex/state_<n>.sqlite with the highest n.
 func codexStateDB(home string) (string, error) {
 	matches, err := filepath.Glob(filepath.Join(home, "state_*.sqlite"))
 	if err != nil || len(matches) == 0 {
 		return "", fmt.Errorf("no state_*.sqlite in %s", home)
 	}
-	sort.Strings(matches)
+	sort.Slice(matches, func(i, j int) bool { return stateGen(matches[i]) < stateGen(matches[j]) })
 	return matches[len(matches)-1], nil
+}
+
+func stateGen(path string) int {
+	base := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "state_"), ".sqlite")
+	n, err := strconv.Atoi(base)
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 // readCodexThreads reads the undocumented threads table via the sqlite3 CLI,
@@ -82,8 +94,9 @@ func codexThreadAlive(t codexThread, codexRunning bool, now time.Time) (bool, st
 }
 
 // readCodexChatProcesses reads process_manager/chat_processes.json, the
-// processes the Codex app itself manages.
-func readCodexChatProcesses(st *State, home string) error {
+// processes the Codex app itself manages. The file keeps entries for long-dead
+// processes, so an entry counts only if its start time matches the live PID.
+func readCodexChatProcesses(st *State, home string, snap *proc.Snapshot) error {
 	data, err := os.ReadFile(filepath.Join(home, "process_manager", "chat_processes.json"))
 	if err != nil {
 		return err
@@ -93,7 +106,7 @@ func readCodexChatProcesses(st *State, home string) error {
 		return fmt.Errorf("chat_processes.json: %w", err)
 	}
 	for _, p := range procs {
-		if p.OSPid > 0 {
+		if p.OSPid > 0 && p.StartedAtMs > 0 && snap.AliveSince(p.OSPid, time.UnixMilli(p.StartedAtMs)) {
 			st.CodexProcesses[p.OSPid] = p.ConversationID
 		}
 	}

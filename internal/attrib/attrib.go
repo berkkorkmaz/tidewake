@@ -1,9 +1,13 @@
 // Package attrib decides, for every process, whether an agent session left it
 // behind, and records the proof for that verdict.
+//
+// Safety rule: a cleanup command is printed only when the evidence is strong,
+// and a process tree is cut at anything that belongs elsewhere.
 package attrib
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +24,8 @@ type Kind string
 const (
 	// Leftover: attributed to a session that has ended. Strongest evidence.
 	Leftover Kind = "leftover"
-	// Suspect: no session id, but orphaned, its group leader gone, and running from an agent path.
+	// Suspect: orphaned and running from an agent path, or attributed to a
+	// session whose liveness could not be read.
 	Suspect Kind = "suspect"
 	// Detached: attributed to a session that is still running, but no longer under it.
 	Detached Kind = "detached"
@@ -45,6 +50,9 @@ type Finding struct {
 	Proof       []string  `json:"proof"`
 	Suggest     string    `json:"suggest,omitempty"`
 	Caution     string    `json:"caution,omitempty"`
+
+	// unsure marks a verdict without readable session state; it never gets a command.
+	unsure bool
 }
 
 // Input is everything classification needs.
@@ -53,7 +61,7 @@ type Input struct {
 	State *harness.State
 	Pack  *rules.Pack
 	UID   int
-	// Self is tidewake's own pid; it and its children are never flagged.
+	// Self is tidewake's own pid; it, its ancestors and its children are never flagged.
 	Self int
 }
 
@@ -63,16 +71,14 @@ type attribution struct {
 
 // Classify returns findings sorted by tree RSS, largest first.
 func Classify(in Input) []Finding {
-	c := classifier{in: in, harnessPIDs: map[int]string{}}
-	c.indexHarnessProcesses()
-
+	c := newClassifier(in)
 	flagged := map[int]*Finding{}
 	for _, p := range in.Snap.Procs {
 		if f := c.classify(p); f != nil {
 			flagged[p.PID] = f
 		}
 	}
-	findings := c.collapseTrees(flagged)
+	findings := c.buildTrees(flagged)
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].TreeRSSKB != findings[j].TreeRSSKB {
 			return findings[i].TreeRSSKB > findings[j].TreeRSSKB
@@ -85,20 +91,40 @@ func Classify(in Input) []Finding {
 type classifier struct {
 	in          Input
 	harnessPIDs map[int]string
+	selfLine    map[int]bool // Self and its ancestors
+	sessionPath map[string]*regexp.Regexp
+	children    map[int][]*proc.Process
 }
 
-func (c *classifier) indexHarnessProcesses() {
-	for _, p := range c.in.Snap.Procs {
-		for name, h := range c.in.Pack.Harnesses {
+func newClassifier(in Input) *classifier {
+	c := &classifier{in: in, harnessPIDs: map[int]string{}, selfLine: map[int]bool{in.Self: true},
+		sessionPath: map[string]*regexp.Regexp{}, children: map[int][]*proc.Process{}}
+	for _, p := range in.Snap.Procs {
+		c.children[p.PPID] = append(c.children[p.PPID], p)
+		for name, h := range in.Pack.Harnesses {
 			if h.IsHarnessProcess(p.Name(), p.Command) {
 				c.harnessPIDs[p.PID] = name
 			}
 		}
 	}
+	for _, a := range in.Snap.Ancestors(in.Self) {
+		c.selfLine[a.PID] = true
+	}
+	for name, h := range in.Pack.Harnesses {
+		if h.SessionPathPattern != "" {
+			c.sessionPath[name] = regexp.MustCompile(h.SessionPathPattern)
+		}
+	}
+	return c
+}
+
+// untouchable processes are never flagged and never put in a kill list.
+func (c *classifier) untouchable(p *proc.Process) bool {
+	return p.UID != c.in.UID || p.PID == proc.LaunchdPID || p.LaunchdJob || c.selfLine[p.PID] || c.isSelfDescendant(p)
 }
 
 func (c *classifier) classify(p *proc.Process) *Finding {
-	if p.UID != c.in.UID || p.PID == c.in.Self || p.PID == proc.LaunchdPID || p.LaunchdJob || c.isSelfDescendant(p) {
+	if c.untouchable(p) {
 		return nil
 	}
 	_, isHarness := c.harnessPIDs[p.PID]
@@ -137,18 +163,34 @@ func (c *classifier) attribute(p *proc.Process) *attribution {
 	if conv, ok := c.in.State.CodexProcesses[p.PID]; ok && conv != "" {
 		return &attribution{"codex", conv, "listed in Codex chat_processes.json"}
 	}
-	names := make([]string, 0, len(c.in.Pack.Harnesses))
-	for name := range c.in.Pack.Harnesses {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := c.harnessNames()
 	for _, name := range names {
 		h := c.in.Pack.Harnesses[name]
 		if id := p.Env[h.SessionEnv]; id != "" {
 			return &attribution{name, id, fmt.Sprintf("carries %s=%s", h.SessionEnv, short(id))}
 		}
 	}
+	for _, name := range names {
+		re := c.sessionPath[name]
+		if re == nil {
+			continue
+		}
+		for _, s := range []string{p.Cwd, p.Command} {
+			if m := re.FindStringSubmatch(s); m != nil {
+				return &attribution{name, m[1], fmt.Sprintf("runs in session %s's scratch directory", short(m[1]))}
+			}
+		}
+	}
 	return nil
+}
+
+func (c *classifier) harnessNames() []string {
+	names := make([]string, 0, len(c.in.Pack.Harnesses))
+	for name := range c.in.Pack.Harnesses {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (c *classifier) attributed(p *proc.Process, a attribution) *Finding {
@@ -171,8 +213,8 @@ func (c *classifier) attributed(p *proc.Process, a attribution) *Finding {
 		f.Kind = Leftover
 		f.Proof = []string{a.via, fmt.Sprintf("no running %s session has this id", label), noParent}
 	default:
-		// Without readable session state an unknown id proves nothing.
 		f.Kind = Suspect
+		f.unsure = true
 		f.Proof = []string{a.via, fmt.Sprintf("%s session state unreadable, liveness unknown", label), noParent}
 	}
 	return f
@@ -217,7 +259,8 @@ func (c *classifier) suspect(p *proc.Process) *Finding {
 }
 
 func (c *classifier) agentPathHarness(p *proc.Process) (string, bool) {
-	for name, h := range c.in.Pack.Harnesses {
+	for _, name := range c.harnessNames() {
+		h := c.in.Pack.Harnesses[name]
 		if h.InAgentPath(p.Cwd) || h.InAgentPath(p.Command) {
 			return name, true
 		}
@@ -252,65 +295,145 @@ func (c *classifier) parentName(p *proc.Process) string {
 	return strconv.Itoa(p.PPID)
 }
 
-// collapseTrees keeps only the top-most flagged process of each tree and
-// folds its descendants into it, so one leftover MCP server and its browser
-// read as one row.
-func (c *classifier) collapseTrees(flagged map[int]*Finding) []Finding {
+// cleanable reports a verdict whose tree may be gathered and stopped.
+func cleanable(k Kind) bool { return k == Leftover || k == Suspect }
+
+// buildTrees climbs each cleanable finding to its orphaned group root, gathers
+// the tree under it (cut at anything that belongs elsewhere), and drops
+// findings already covered by another tree.
+func (c *classifier) buildTrees(flagged map[int]*Finding) []Finding {
+	roots := map[int]*Finding{}
+	for _, f := range flagged {
+		if !cleanable(f.Kind) {
+			continue
+		}
+		root := c.climb(c.in.Snap.Get(f.PID), f)
+		if root.PID != f.PID {
+			f.Proof = append(f.Proof, fmt.Sprintf("started by %s (pid %d) in the same orphaned process group", root.Name(), root.PID))
+			f.PID, f.PPID, f.Command, f.Cwd, f.Started = root.PID, root.PPID, root.Command, root.Cwd, root.Started
+		}
+		if prev, ok := roots[f.PID]; !ok || f.Kind == Leftover && prev.Kind != Leftover {
+			roots[f.PID] = f
+		}
+	}
+
+	covered := map[int]bool{}
 	var out []Finding
-	for pid, f := range flagged {
-		if f.Kind != Stuck && c.hasFlaggedAncestor(pid, flagged) {
+	for _, pid := range c.shallowestFirst(roots) {
+		f := roots[pid]
+		if covered[f.PID] {
 			continue
 		}
 		c.fillTree(f)
+		for _, t := range f.TreePIDs {
+			covered[t] = true
+		}
+		out = append(out, *f)
+	}
+	for _, f := range flagged {
+		if cleanable(f.Kind) || covered[f.PID] {
+			continue
+		}
+		f.TreePIDs, f.TreeRSSKB = []int{f.PID}, c.in.Snap.Get(f.PID).RSSKB
+		f.Suggest, f.Caution = suggestion(f)
 		out = append(out, *f)
 	}
 	return out
 }
 
-func (c *classifier) hasFlaggedAncestor(pid int, flagged map[int]*Finding) bool {
-	for _, a := range c.in.Snap.Ancestors(pid) {
-		if g, ok := flagged[a.PID]; ok && g.Kind != Stuck {
-			return true
+// climb walks up from p while the parent is an orphaned member of the same
+// process group with no conflicting owner. Node and Postgres rewrite their
+// process title, which can hide the session id on the real root.
+func (c *classifier) climb(p *proc.Process, f *Finding) *proc.Process {
+	for {
+		parent := c.in.Snap.Get(p.PPID)
+		if parent == nil || parent.PID == proc.LaunchdPID || parent.PGID != p.PGID || !c.belongsWith(parent, f) {
+			return p
 		}
+		p = parent
 	}
-	return false
 }
 
-func (c *classifier) fillTree(f *Finding) {
-	root := c.in.Snap.Get(f.PID)
-	tree := []*proc.Process{root}
-	if f.Kind != Stuck {
-		tree = append(tree, c.in.Snap.Descendants(f.PID)...)
+// belongsWith reports whether p may be stopped together with finding f.
+func (c *classifier) belongsWith(p *proc.Process, f *Finding) bool {
+	if c.untouchable(p) || c.harnessPIDs[p.PID] != "" {
+		return false
 	}
-	for _, p := range tree {
+	a := c.attribute(p)
+	if a == nil {
+		return true
+	}
+	if f.SessionID != "" && (a.harness != f.Harness || a.sessionID != f.SessionID) {
+		return false
+	}
+	sess := c.in.State.Lookup(a.harness, a.sessionID)
+	return sess == nil || !sess.Alive
+}
+
+func (c *classifier) shallowestFirst(roots map[int]*Finding) []int {
+	pids := make([]int, 0, len(roots))
+	depth := map[int]int{}
+	for pid := range roots {
+		pids = append(pids, pid)
+		depth[pid] = len(c.in.Snap.Ancestors(pid))
+	}
+	sort.Slice(pids, func(i, j int) bool {
+		if depth[pids[i]] != depth[pids[j]] {
+			return depth[pids[i]] < depth[pids[j]]
+		}
+		return pids[i] < pids[j]
+	})
+	return pids
+}
+
+// fillTree gathers the root and every descendant that belongs with it. A
+// descendant that belongs elsewhere is left out together with its subtree.
+func (c *classifier) fillTree(f *Finding) {
+	excluded := 0
+	queue := []*proc.Process{c.in.Snap.Get(f.PID)}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		if p.PID != f.PID && !c.belongsWith(p, f) {
+			excluded += 1 + len(c.in.Snap.Descendants(p.PID))
+			continue
+		}
 		f.TreePIDs = append(f.TreePIDs, p.PID)
 		f.TreeRSSKB += p.RSSKB
 		f.Ports = append(f.Ports, p.Ports...)
+		queue = append(queue, c.children[p.PID]...)
+	}
+	if excluded > 0 {
+		f.Proof = append(f.Proof, fmt.Sprintf("%d process(es) under it belong to something still running and are left out", excluded))
 	}
 	f.Suggest, f.Caution = suggestion(f)
 }
 
+// suggestion returns the cleanup command, or none when tidewake cannot be sure.
 func suggestion(f *Finding) (cmd, caution string) {
-	if len(f.Ports) > 0 {
-		caution = "listens on " + portList(f.Ports) + "; check nothing still uses it"
-	}
-	if isDesktopApp(f.Command) {
-		caution = "a desktop app, probably opened on purpose"
-	}
-	switch f.Kind {
-	case Leftover, Suspect:
-		return "kill -TERM " + joinInts(f.TreePIDs), caution
-	case Detached:
+	switch {
+	case f.Kind == Detached:
 		return "", "its session is still running; stop it from that session if unwanted"
-	default:
+	case f.Kind == Stuck:
 		return "", "clears when its parent exits"
+	case f.unsure:
+		return "", "session state could not be read; no command until liveness is known"
+	case isDesktopApp(f.Command):
+		return "", "a desktop app, probably opened on purpose; quit it normally if unwanted"
+	case len(f.Ports) > 0:
+		return "", "serves " + portList(f.Ports) + "; it may be a service you use, so stop it yourself if not"
 	}
+	return "kill -TERM " + joinInts(f.TreePIDs), ""
 }
 
 func portList(ports []int) string {
-	s := make([]string, len(ports))
-	for i, p := range ports {
-		s[i] = ":" + strconv.Itoa(p)
+	seen := map[int]bool{}
+	var s []string
+	for _, p := range ports {
+		if !seen[p] {
+			seen[p] = true
+			s = append(s, ":"+strconv.Itoa(p))
+		}
 	}
 	return strings.Join(s, " ")
 }

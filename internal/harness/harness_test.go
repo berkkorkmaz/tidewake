@@ -13,7 +13,17 @@ import (
 	"github.com/berkkorkmaz/tidewake/internal/rules"
 )
 
-var started = time.Date(2026, 9, 29, 7, 55, 55, 0, time.Local)
+// started is the instant written as procStart "Tue Sep 29 07:55:55 2026" (UTC).
+var started = time.Date(2026, 9, 29, 7, 55, 55, 0, time.UTC)
+
+// withLocalZone runs the test as if the machine were in UTC+3, so a UTC/local
+// mix-up cannot pass on a UTC CI runner.
+func withLocalZone(t *testing.T) {
+	t.Helper()
+	prev := time.Local
+	time.Local = time.FixedZone("UTC+3", 3*60*60)
+	t.Cleanup(func() { time.Local = prev })
+}
 
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
@@ -45,6 +55,7 @@ func load(t *testing.T, claudeHome, codexHome string, run Runner, snap *proc.Sna
 }
 
 func TestClaudeSessionFileLivenessUsesProcStart(t *testing.T) {
+	withLocalZone(t)
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "sessions", "100.json"),
 		`{"pid":100,"sessionId":"live","procStart":"Tue Sep 29 07:55:55 2026"}`)
@@ -126,16 +137,35 @@ func TestCodexThreadLiveness(t *testing.T) {
 func TestCodexSourcesFromFixtures(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "state_5.sqlite"), "")
+	procStarted := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	writeFile(t, filepath.Join(home, "process_manager", "chat_processes.json"),
-		`[{"osPid":4242,"conversationId":"t1","command":"npm run dev"}]`)
+		`[{"osPid":4242,"conversationId":"t1","startedAtMs":`+strconv.FormatInt(procStarted.UnixMilli()+400, 10)+`},
+		  {"osPid":5151,"conversationId":"old","startedAtMs":`+strconv.FormatInt(procStarted.Add(-30*24*time.Hour).UnixMilli(), 10)+`},
+		  {"osPid":6161,"conversationId":"nostart"}]`)
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	threads := `[{"id":"t1","cwd":"/r","archived":0,"updated_at":` + strconv.FormatInt(now.Add(-time.Hour).Unix(), 10) + `}]`
-	snap := &proc.Snapshot{Procs: map[int]*proc.Process{7: {PID: 7, Command: "/Users/me/.codex/packages/standalone/current/codex"}}}
+	snap := &proc.Snapshot{Procs: map[int]*proc.Process{
+		7:    {PID: 7, Command: "/Users/me/.codex/packages/standalone/current/codex"},
+		4242: {PID: 4242, Started: procStarted},
+		5151: {PID: 5151, Started: procStarted}, // PID reused since the stale entry was written
+		6161: {PID: 6161, Started: procStarted},
+	}}
 	st := load(t, t.TempDir(), home, fakeRunner(map[string]string{"claude": "[]", "sqlite3": threads}, nil), snap)
 	if s := st.Lookup("codex", "t1"); s == nil || !s.Alive {
 		t.Fatalf("t1 = %+v", s)
 	}
-	if st.CodexProcesses[4242] != "t1" {
+	if st.CodexProcesses[4242] != "t1" || len(st.CodexProcesses) != 1 {
 		t.Fatalf("chat processes = %v", st.CodexProcesses)
+	}
+}
+
+func TestCodexStateDBPicksHighestGeneration(t *testing.T) {
+	home := t.TempDir()
+	for _, n := range []string{"state_9.sqlite", "state_10.sqlite", "state_x.sqlite"} {
+		writeFile(t, filepath.Join(home, n), "")
+	}
+	got, err := codexStateDB(home)
+	if err != nil || filepath.Base(got) != "state_10.sqlite" {
+		t.Fatalf("got %s, %v", got, err)
 	}
 }

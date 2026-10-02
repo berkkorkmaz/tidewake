@@ -2,6 +2,7 @@ package attrib
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/berkkorkmaz/tidewake/internal/harness"
@@ -204,5 +205,104 @@ func TestDesktopCautionSkipsHeadlessAndNonApps(t *testing.T) {
 		if got := isDesktopApp(cmd); got != want {
 			t.Errorf("isDesktopApp(%q) = %v, want %v", cmd, got, want)
 		}
+	}
+}
+
+// Review probe: a tmux server from an ended session hosts a live claude
+// session; the kill list must stop at the live session.
+func TestTreeIsCutAtLiveSession(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 20, PPID: 1, Command: "tmux new-session", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 21, PPID: 20, PGID: 21, Command: "-zsh", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 22, PPID: 21, PGID: 22, Command: "claude", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 23, PPID: 22, PGID: 22, Command: "node mcp.js", Env: claudeEnv("live")})
+	f.add(&proc.Process{PID: 24, PPID: 20, PGID: 24, Command: "vite", Env: claudeEnv("other-live")})
+	f.session("claude", "dead", false)
+	f.session("claude", "live", true)
+	f.session("claude", "other-live", true)
+	fd := f.run(t)[20]
+	if fd.Suggest != "kill -TERM 20 21" {
+		t.Fatalf("suggest = %q, want only the dead session's processes", fd.Suggest)
+	}
+	if !strings.Contains(strings.Join(fd.Proof, ";"), "left out") {
+		t.Fatalf("proof must say what was left out: %v", fd.Proof)
+	}
+}
+
+// Review probe: tidewake run from a shell inside a leftover tree must not
+// list its own shell or itself.
+func TestSelfAncestorsNeverInKillList(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 50, PPID: 1, Command: "tmux", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 51, PPID: 50, PGID: 51, Command: "-zsh", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 52, PPID: 51, PGID: 52, Command: "tidewake scan", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 53, PPID: 50, PGID: 53, Command: "tail -f x", Env: claudeEnv("dead")})
+	f.session("claude", "dead", false)
+	f.self = 52
+	for _, fd := range f.run(t) {
+		for _, pid := range fd.TreePIDs {
+			if pid == 51 || pid == 52 {
+				t.Fatalf("kill list %v includes tidewake's own line", fd.TreePIDs)
+			}
+		}
+	}
+}
+
+// Review probe: a scratchpad process without the env var belongs to the
+// session named in its path; a live session means detached, not suspect.
+func TestScratchpadPathAttribution(t *testing.T) {
+	scratch := "/private/tmp/claude-501/-Users-me-proj/c5f4b453-998d-4aab-b9b8-76f615347856/scratchpad"
+	f := newFixture()
+	f.add(&proc.Process{PID: 60, PPID: 1, PGID: 59, Cwd: scratch, Command: "tail -f out.log"})
+	f.session("claude", "c5f4b453-998d-4aab-b9b8-76f615347856", true)
+	fd := f.run(t)[60]
+	if fd.Kind != Detached || fd.Suggest != "" {
+		t.Fatalf("live session: got %+v", fd)
+	}
+	f.session("claude", "c5f4b453-998d-4aab-b9b8-76f615347856", false)
+	if fd := f.run(t)[60]; fd.Kind != Leftover || fd.Suggest != "kill -TERM 60" {
+		t.Fatalf("ended session: got %+v", fd)
+	}
+}
+
+func TestNoCommandWhenUnsureOrServing(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 70, PPID: 1, Command: "node x", Env: claudeEnv("unknown")})
+	f.add(&proc.Process{PID: 71, PPID: 1, Command: "postgres -D /data", Env: claudeEnv("dead"), Ports: []int{5432}})
+	f.session("claude", "dead", false)
+	f.state.Sources["claude agents --json"] = errors.New("old claude")
+	got := f.run(t)
+	if got[70].Suggest != "" || got[70].Kind != Suspect {
+		t.Errorf("unknown liveness must not get a command: %+v", got[70])
+	}
+	if got[71].Suggest != "" || !strings.Contains(got[71].Caution, ":5432") {
+		t.Errorf("a listening service must not get a command: %+v", got[71])
+	}
+}
+
+// Review probe: node rewrites its title, so `npm start` above it lacks the
+// session id; the kill list must start at the orphaned group root.
+func TestClimbsToOrphanedGroupRoot(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 80, PPID: 1, PGID: 80, Command: "npm start"})
+	f.add(&proc.Process{PID: 81, PPID: 80, PGID: 80, Command: "node scripts/start.mjs", Env: claudeEnv("dead")})
+	f.session("claude", "dead", false)
+	got := f.run(t)
+	if _, child := got[81]; child {
+		t.Fatal("finding must move to the group root")
+	}
+	if fd := got[80]; fd.Suggest != "kill -TERM 80 81" {
+		t.Fatalf("got %+v", fd)
+	}
+}
+
+func TestDoesNotClimbIntoAnotherGroup(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 90, PPID: 1, PGID: 90, Command: "-zsh"})
+	f.add(&proc.Process{PID: 91, PPID: 90, PGID: 91, Command: "node dev.js", Env: claudeEnv("dead")})
+	f.session("claude", "dead", false)
+	got := f.run(t)
+	if fd, ok := got[91]; !ok || fd.Suggest != "kill -TERM 91" {
+		t.Fatalf("got %+v", got)
 	}
 }

@@ -58,7 +58,8 @@ func readClaudeSessionFiles(st *State, dir string, snap *proc.Snapshot) error {
 		if json.Unmarshal(data, &f) != nil || f.SessionID == "" {
 			continue
 		}
-		started, _ := time.ParseInLocation(proc.LstartLayout, f.ProcStart, time.Local)
+		// procStart is written in UTC, unlike ps, which prints local time.
+		started, _ := time.ParseInLocation(proc.LstartLayout, f.ProcStart, time.UTC)
 		alive := snap.AliveSince(f.PID, started)
 		why := fmt.Sprintf("session process %d is running", f.PID)
 		if !alive {
