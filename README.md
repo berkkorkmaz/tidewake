@@ -73,16 +73,16 @@ that you are done with it. The third comes from `tidewake sessions`.
 
 ```mermaid
 flowchart TD
-    P([a process]) --> A{under a live Claude Code<br/>or Codex process?}
+    P([a process]) --> A["under a live Claude Code<br/>or Codex process?"]
     A -- yes --> OK([not listed])
-    A -- no --> B{has a session id, or runs<br/>in a session's scratch folder?}
-    B -- no --> F{orphaned and started<br/>by an agent?}
+    A -- no --> B["has a session id, or runs<br/>in a session's scratch folder?"]
+    B -- no --> F["orphaned and started<br/>by an agent?"]
     F -- no --> OK
     F -- yes --> G[suspect]
-    B -- yes --> C{is that session<br/>still running?}
+    B -- yes --> C["is that session<br/>still running?"]
     C -- yes --> D([detached: listed, no command])
     C -- no --> E[leftover]
-    E --> H{serves a port, is a desktop app,<br/>or state was unreadable?}
+    E --> H["serves a port, is a desktop app,<br/>or state was unreadable?"]
     G --> H
     H -- yes --> N([listed with a note, no command])
     H -- no --> K([listed with: kill -TERM pids])
