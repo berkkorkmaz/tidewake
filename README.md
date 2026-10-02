@@ -10,16 +10,17 @@ Example output (trimmed):
 
 ```
 $ tidewake scan
-PROCESSES LEFT BEHIND  15 found · 1.1 GB RAM in leftovers and suspects
-  leftover claude a34ed489        pid 46142   9d  271.6 MB  postgres -D /opt/homebrew/var/postgresql@17
+PROCESSES LEFT BEHIND  11 found · 294.9 MB RAM in leftovers and suspects
+  leftover claude a34ed489        pid 46142   9d  271.5 MB  postgres -D /opt/homebrew/var/postgresql@17
            tree: 6 processes
            why:  carries CLAUDE_CODE_SESSION_ID=a34ed489; no running Claude Code session has this id;
                  no Claude Code process above it (parent: launchd)
-           note: listens on :5432; check nothing still uses it
-           run:  kill -TERM 46142 5572 4969 4970 5573 5574
-  suspect  claude -               pid 32272   3d  660.1 MB  Brave Browser --headless=new …
-           why:  parent exited, adopted by launchd; its process group leader 32269 has exited;
-                 runs from a Claude Code path
+           note: serves :5432; it may be a service you use, so stop it yourself if not
+  leftover claude b7ec50d0        pid 77162   5d  426.0 kB  tail -n +1 -f /private/tmp/claude-501/…/tasks/b4.output
+           why:  runs in session b7ec50d0's scratch directory; no running Claude Code session has this id;
+                 no Claude Code process above it (parent: launchd)
+           run:  kill -TERM 77162
+  + 10 detached process(es) whose session is still running (--all to list)
 
 WORKTREES  29 removable (4.3 GB) · 3 dangling · 13 kept
   removable claude ~/src/api/.claude/worktrees/fix-auth   1.4 GB  (1.2 GB rebuildable)  idle 6d
@@ -80,9 +81,17 @@ and Codex's thread database. Then:
 | `detached` | Its session is still running; shown only with `--all` |
 | `stuck` | Exiting or zombie; only its parent can clear it |
 
+A process without the variable is still attributed when it runs from a session's scratch directory
+(`/tmp/claude-<uid>/<project>/<session-id>/`).
+
 Never flagged: anything under a live Claude Code or Codex process, launchd services, other users'
-processes. A process listening on a port, or a desktop app, carries a caution. Children are folded
-into one row with their total memory.
+processes, tidewake itself and the shell it runs in.
+
+A row gets a `kill -TERM` command only when tidewake is sure. There is no command when session state
+could not be read, when anything in the tree listens on a port (it may be a database or dev server you
+use), or for a desktop app. Children are folded into one row, but the list stops at any process that
+belongs to a running session or to a different session, and the row says how many were left out.
+`kill` commands use PIDs from the scan, so rescan before running them later.
 
 **Worktrees.** Found from every repo a session has worked in. A worktree is `removable` only when
 all of these hold:
@@ -91,14 +100,15 @@ all of these hold:
 - no uncommitted or untracked files
 - no ignored files outside rebuildable folders (`git worktree remove` deletes ignored files too,
   so a `.env` or a data dump keeps it)
-- HEAD is contained in a remote branch
+- HEAD is contained in a remote branch, and every commit made in the worktree is on some branch, tag
+  or remote (removing a worktree deletes its reflog, the last pointer to commits left behind by a checkout)
 - git has not touched it for 48 hours (`--idle` to change)
 
 Registrations whose folder is gone are listed as `dangling` with the `git worktree prune` command.
 
-**Disk.** Old Codex releases that are neither `current` nor in use, Docker images, stopped
-containers and build cache (with week-old or budget-based prune commands, never volumes), and the
-size of transcript stores.
+**Disk.** Old Codex releases that are neither `current` nor in use, Docker images and build cache
+(week-old or budget-based prune commands), and the size of transcript stores. Stopped containers and
+volumes are listed for review only, since both can hold data.
 
 ## Keeping up with releases
 
@@ -125,9 +135,9 @@ new lines about leaks, orphans, worktrees and cleanup. A person reviews them bef
 
 ## Safety
 
-tidewake runs `ps`, `lsof`, `launchctl list`, `git` (with `--no-optional-locks`, so it never rewrites
-an index), `claude agents --json`, `sqlite3 -readonly` and `docker system df`. It does not write
-anywhere and sends nothing over the network.
+tidewake runs `ps` and `lsof` (in the C locale), `launchctl list`, `git` (with `--no-optional-locks`,
+so it never rewrites an index), `claude agents --json`, `sqlite3 -readonly` and `docker system df`.
+It does not write anywhere and sends nothing over the network. Set `TIDEWAKE_DEBUG=1` to see timings.
 
 ## License
 
