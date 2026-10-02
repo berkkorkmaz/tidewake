@@ -8,8 +8,8 @@ import (
 )
 
 func TestParsePSKeepsCommandSpacingAndStart(t *testing.T) {
-	out := []byte("  501     1  7657   501 S      71680 Tue Sep 29 07:55:55 2026     /tmp/venv/bin/python -m http.server  8000\n" +
-		"  502   501   502   501 Ss       100 Fri Oct  2 15:12:34 2026     /Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new\n")
+	out := []byte("  501     1  7657   501 S      71680 142:20.51 Tue Sep 29 07:55:55 2026     /tmp/venv/bin/python -m http.server  8000\n" +
+		"  502   501   502   501 Ss       100   0:00.03 Fri Oct  2 15:12:34 2026     /Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new\n")
 	procs, _, err := ParsePS(out, time.UTC)
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +17,9 @@ func TestParsePSKeepsCommandSpacingAndStart(t *testing.T) {
 	p := procs[501]
 	if p == nil || p.PPID != 1 || p.PGID != 7657 || p.RSSKB != 71680 || p.Stat != "S" {
 		t.Fatalf("pid 501 parsed wrong: %+v", p)
+	}
+	if want := 142*time.Minute + 20510*time.Millisecond; p.CPUTime != want {
+		t.Fatalf("cpu = %v, want %v", p.CPUTime, want)
 	}
 	if p.Command != "/tmp/venv/bin/python -m http.server  8000" {
 		t.Fatalf("command = %q", p.Command)
@@ -30,14 +33,37 @@ func TestParsePSKeepsCommandSpacingAndStart(t *testing.T) {
 }
 
 func TestParsePSSkipsBadLinesButFailsWhenNothingParses(t *testing.T) {
-	good := "  501     1  7657   501 S      100 Tue Sep 29 07:55:55 2026     python x.py\n"
-	localized := "    1     0     1     0 Ss    9000 Cum  2 Eki 15:41:40 2026     /sbin/launchd\n"
+	good := "  501     1  7657   501 S      100 0:01.00 Tue Sep 29 07:55:55 2026     python x.py\n"
+	localized := "    1     0     1     0 Ss    9000 0:01.00 Cum  2 Eki 15:41:40 2026     /sbin/launchd\n"
 	procs, skipped, err := ParsePS([]byte(localized+good), time.UTC)
 	if err != nil || skipped != 1 || procs[501] == nil {
 		t.Fatalf("procs=%v skipped=%d err=%v", procs, skipped, err)
 	}
 	if _, _, err := ParsePS([]byte(localized), time.UTC); err == nil {
 		t.Fatal("expected an error when no line parses")
+	}
+}
+
+func TestParseCPUTime(t *testing.T) {
+	cases := map[string]time.Duration{
+		"0:00.03":    30 * time.Millisecond,
+		"989:31.51":  989*time.Minute + 31510*time.Millisecond,
+		"1:02:03.00": time.Hour + 2*time.Minute + 3*time.Second,
+		"2-01:00:00": 49 * time.Hour,
+	}
+	for in, want := range cases {
+		if got, err := ParseCPUTime(in); err != nil || got != want {
+			t.Errorf("ParseCPUTime(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "12", "a:bb", "1:2:3:4"} {
+		if _, err := ParseCPUTime(bad); err == nil {
+			t.Errorf("ParseCPUTime(%q): expected error", bad)
+		}
+	}
+	got := ParseCPU([]byte("  1 142:20.51\n 83 0:00.00\nbad line here\n"))
+	if len(got) != 2 || got[1] != 142*time.Minute+20510*time.Millisecond {
+		t.Errorf("ParseCPU = %v", got)
 	}
 }
 

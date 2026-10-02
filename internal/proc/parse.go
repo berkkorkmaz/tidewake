@@ -11,13 +11,16 @@ import (
 )
 
 // PSArgs is the ps invocation whose output ParsePS reads.
-var PSArgs = []string{"-axww", "-o", "pid=,ppid=,pgid=,uid=,stat=,rss=,lstart=,command="}
+var PSArgs = []string{"-axww", "-o", "pid=,ppid=,pgid=,uid=,stat=,rss=,time=,lstart=,command="}
+
+// CPUArgs is the ps invocation whose output ParseCPU reads.
+var CPUArgs = []string{"-axo", "pid=,time="}
 
 // LstartLayout is the format of ps lstart and of Claude Code's procStart.
 const LstartLayout = "Mon Jan _2 15:04:05 2006"
 
 const (
-	psFixedFields  = 6 // pid ppid pgid uid stat rss
+	psFixedFields  = 7 // pid ppid pgid uid stat rss time
 	lstartFields   = 5 // e.g. "Fri Oct  2 15:12:34 2026"
 	psMinFieldsRow = psFixedFields + lstartFields + 1
 )
@@ -78,15 +81,68 @@ func parsePSLine(line string, loc *time.Location) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ps rss in %q: %w", line, err)
 	}
-	started, err := time.ParseInLocation(LstartLayout, strings.Join(f[6:6+lstartFields], " "), loc)
+	cpu, err := ParseCPUTime(f[6])
+	if err != nil {
+		return nil, fmt.Errorf("ps time in %q: %w", line, err)
+	}
+	started, err := time.ParseInLocation(LstartLayout, strings.Join(f[psFixedFields:psFixedFields+lstartFields], " "), loc)
 	if err != nil {
 		return nil, fmt.Errorf("ps lstart in %q: %w", line, err)
 	}
 	return &Process{
 		PID: ints[0], PPID: ints[1], PGID: ints[2], UID: ints[3],
-		Stat: f[4], RSSKB: rss, Started: started,
+		Stat: f[4], RSSKB: rss, CPUTime: cpu, Started: started,
 		Command: commandAfterFields(line, psFixedFields+lstartFields),
 	}, nil
+}
+
+// ParseCPUTime parses ps's time column: "m:ss.cs" (minutes may exceed 59),
+// "h:mm:ss.cs", or with a day prefix "d-hh:mm:ss".
+func ParseCPUTime(s string) (time.Duration, error) {
+	var days int
+	if d, rest, ok := strings.Cut(s, "-"); ok {
+		n, err := strconv.Atoi(d)
+		if err != nil {
+			return 0, fmt.Errorf("cpu time %q: %w", s, err)
+		}
+		days, s = n, rest
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, fmt.Errorf("cpu time %q: want m:ss or h:mm:ss", s)
+	}
+	secs, err := strconv.ParseFloat(parts[len(parts)-1], 64)
+	if err != nil {
+		return 0, fmt.Errorf("cpu time %q: %w", s, err)
+	}
+	total := time.Duration(secs * float64(time.Second))
+	unit := time.Minute
+	for i := len(parts) - 2; i >= 0; i-- {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return 0, fmt.Errorf("cpu time %q: %w", s, err)
+		}
+		total += time.Duration(n) * unit
+		unit *= 60
+	}
+	return total + time.Duration(days)*24*time.Hour, nil
+}
+
+// ParseCPU parses `ps` run with CPUArgs into pid -> CPU time.
+func ParseCPU(out []byte) map[int]time.Duration {
+	res := map[int]time.Duration{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		cpu, err2 := ParseCPUTime(f[1])
+		if err1 == nil && err2 == nil {
+			res[pid] = cpu
+		}
+	}
+	return res
 }
 
 // commandAfterFields returns the rest of line after n whitespace-separated

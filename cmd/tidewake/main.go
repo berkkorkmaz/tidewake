@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/berkkorkmaz/tidewake/internal/disk"
 	"github.com/berkkorkmaz/tidewake/internal/doctor"
 	"github.com/berkkorkmaz/tidewake/internal/harness"
+	"github.com/berkkorkmaz/tidewake/internal/health"
 	"github.com/berkkorkmaz/tidewake/internal/proc"
 	"github.com/berkkorkmaz/tidewake/internal/report"
 	"github.com/berkkorkmaz/tidewake/internal/rules"
@@ -32,9 +34,10 @@ const usage = `tidewake finds what your Claude Code and Codex sessions left behi
 Usage:
   tidewake scan    [--json] [--all] [--root DIR]... [--idle 48h]
   tidewake doctor  [--json]
+  tidewake sessions [--json] [--stuck 2h] [--idle 24h] [--ram 4GB] [--sample 3s]
   tidewake version
 
-scan and doctor are read-only: they never stop a process or delete a file.
+Every command is read-only: none of them stops a process or deletes a file.
 `
 
 type rootList []string
@@ -58,6 +61,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return cmdScan(ctx, args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(ctx, args[1:], stdout, stderr)
+	case "sessions":
+		return cmdSessions(ctx, args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "tidewake", version)
 		return 0
@@ -157,5 +162,72 @@ func writeJSON(stdout, stderr io.Writer, v any) int {
 		fmt.Fprintln(stderr, "tidewake:", err)
 		return 1
 	}
+	return 0
+}
+
+// defaultSample is how long CPU use is measured; long enough to tell a
+// working session from a silent one.
+const defaultSample = 3 * time.Second
+
+func cmdSessions(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	limits := health.DefaultThresholds
+	fs.DurationVar(&limits.Stuck, "stuck", limits.Stuck, "busy this long with no activity counts as stuck")
+	fs.DurationVar(&limits.Idle, "idle", limits.Idle, "idle this long while holding 1 GB+ gets a flag")
+	ram := fs.String("ram", "4GB", "memory per session worth flagging, e.g. 4GB or 800MB")
+	sample := fs.Duration("sample", defaultSample, "how long to measure CPU use")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	ramBytes, ok := disk.ParseSize(*ram)
+	if !ok || ramBytes <= 0 {
+		fmt.Fprintf(stderr, "tidewake: --ram %q: use a size like 4GB or 800MB\n", *ram)
+		return 2
+	}
+	limits.RAMKB = health.KiBFromBytes(ramBytes)
+
+	opts, err := scanOptions(nil, worktree.DefaultIdle)
+	if err != nil {
+		fmt.Fprintln(stderr, "tidewake:", err)
+		return 1
+	}
+	pack, err := rules.Load()
+	if err != nil {
+		fmt.Fprintln(stderr, "tidewake:", err)
+		return 1
+	}
+	sys := proc.System{}
+	snap, err := sys.Collect(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "tidewake:", err)
+		return 1
+	}
+	select {
+	case <-time.After(*sample):
+	case <-ctx.Done():
+		return 1
+	}
+	after, err := sys.SampleCPU(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "tidewake:", err)
+		return 1
+	}
+	sessions, _ := health.ReadClaudeSessions(filepath.Join(opts.ClaudeHome, "sessions"))
+	now := time.Now()
+	rows := health.Report(health.Input{
+		Snap: snap, CPUAfter: after, Interval: *sample, Sessions: sessions,
+		Activity: health.TranscriptActivity(filepath.Join(opts.ClaudeHome, "projects")),
+		Pack:     pack, Limits: limits, Now: now,
+	})
+	if *asJSON {
+		if rows == nil {
+			rows = []health.Row{}
+		}
+		return writeJSON(stdout, stderr, rows)
+	}
+	home, _ := os.UserHomeDir()
+	report.Sessions(stdout, rows, report.SessionsOptions{Home: home, Now: now, Limits: limits, Sample: *sample})
 	return 0
 }

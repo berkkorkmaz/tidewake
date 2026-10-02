@@ -74,6 +74,17 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 	return &Snapshot{Taken: time.Now(), Procs: procs}, nil
 }
 
+// SampleCPU reads every process's CPU time with one cheap ps call.
+func (System) SampleCPU(ctx context.Context) (map[int]time.Duration, error) {
+	cmd := exec.CommandContext(ctx, "ps", CPUArgs...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ps: %w", err)
+	}
+	return ParseCPU(out), nil
+}
+
 func readArgs(pid int) (map[string]string, string) {
 	buf, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {

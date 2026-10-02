@@ -12,12 +12,14 @@ const LaunchdPID = 1
 
 // Process is one process as seen at snapshot time.
 type Process struct {
-	PID     int
-	PPID    int
-	PGID    int
-	UID     int
-	Stat    string
-	RSSKB   int64
+	PID   int
+	PPID  int
+	PGID  int
+	UID   int
+	Stat  string
+	RSSKB int64
+	// CPUTime is total CPU time used since the process started.
+	CPUTime time.Duration
 	Started time.Time
 	Command string
 	// Exe is the executable path the kernel recorded at exec time.
@@ -121,6 +123,11 @@ func (s *Snapshot) Descendants(pid int) []*Process {
 // Collector produces snapshots; tests supply fakes.
 type Collector interface {
 	Collect(ctx context.Context) (*Snapshot, error)
+}
+
+// CPUSampler reads every process's CPU time cheaply, for a second sample.
+type CPUSampler interface {
+	SampleCPU(ctx context.Context) (map[int]time.Duration, error)
 }
 
 func cutArgv0(command string) (exe, rest string, ok bool) {
