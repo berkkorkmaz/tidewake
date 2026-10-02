@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="280" viewBox="0 0 760 280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="What can be freed: 30.5 GB">
+<title>What can be freed: 30.5 GB</title>
+<text x="0" y="24" font-size="17" font-weight="600" fill="#0b0b0b">What can be freed: 30.5 GB</text>
+<text x="0" y="46" font-size="13" fill="#8a8984">One tidewake scan on a developer Mac, Oct 2026. Each row comes with a command to review.</text>
+<line x1="300" y1="66" x2="300" y2="268" stroke="#e4e3df" stroke-width="1"/>
+<text x="288" y="90.0" font-size="13.5" text-anchor="end" fill="#52514e">Unused Docker images</text>
+<path d="M300,74 h355.99999999999994 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-355.99999999999994 z" fill="#2a78d6"/>
+<text x="668.0" y="90.0" font-size="13.5" font-weight="600" fill="#0b0b0b">14.2 GB</text>
+<text x="288" y="128.0" font-size="13.5" text-anchor="end" fill="#52514e">Scratch files of ended Claude sessions</text>
+<path d="M300,112 h230.27848101265823 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-230.27848101265823 z" fill="#2a78d6"/>
+<text x="542.2784810126582" y="128.0" font-size="13.5" font-weight="600" fill="#0b0b0b">9.3 GB</text>
+<text x="288" y="166.0" font-size="13.5" text-anchor="end" fill="#52514e">Old Codex releases</text>
+<path d="M300,150 h79.41772151898734 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-79.41772151898734 z" fill="#2a78d6"/>
+<text x="391.4177215189873" y="166.0" font-size="13.5" font-weight="600" fill="#0b0b0b">3.3 GB</text>
+<text x="288" y="204.0" font-size="13.5" text-anchor="end" fill="#52514e">Docker build cache</text>
+<path d="M300,188 h54.126582278481 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-54.126582278481 z" fill="#2a78d6"/>
+<text x="366.126582278481" y="204.0" font-size="13.5" font-weight="600" fill="#0b0b0b">2.3 GB</text>
+<text x="288" y="242.0" font-size="13.5" text-anchor="end" fill="#52514e">Finished git worktrees</text>
+<path d="M300,226 h32.91139240506329 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-32.91139240506329 z" fill="#2a78d6"/>
+<text x="344.9113924050633" y="242.0" font-size="13.5" font-weight="600" fill="#0b0b0b">1.5 GB</text>
+</svg>

@@ -1,167 +1,165 @@
 # tidewake
 
-**What did your coding agents leave behind, and is it safe to remove?**
+[![ci](https://github.com/berkkorkmaz/tidewake/actions/workflows/ci.yml/badge.svg)](https://github.com/berkkorkmaz/tidewake/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/berkkorkmaz/tidewake?include_prereleases&label=release)](https://github.com/berkkorkmaz/tidewake/releases)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-`tidewake scan` lists the processes, git worktrees and disk that Claude Code and Codex sessions left
-on your machine. It ties each one to the session that created it and shows the proof. It is
-read-only: it prints the command to clean each item and never runs it.
+**See what your coding agents left behind, and whether it is safe to remove.**
 
-Example output (trimmed):
+Claude Code and Codex start servers, browsers, test runners and worktrees for you. When a session
+crashes or ends, some of that keeps running and keeps filling your disk. tidewake finds it, ties
+every item to the session that created it, and shows the proof. It never deletes anything itself:
+each row ends with the command to run if you agree.
 
-```
-$ tidewake scan
-PROCESSES LEFT BEHIND  11 found · 294.9 MB RAM in leftovers and suspects
-  leftover claude a34ed489        pid 46142   9d  271.5 MB  postgres -D /opt/homebrew/var/postgresql@17
-           tree: 6 processes
-           why:  carries CLAUDE_CODE_SESSION_ID=a34ed489; no running Claude Code session has this id;
-                 no Claude Code process above it (parent: launchd)
-           note: serves :5432; it may be a service you use, so stop it yourself if not
-  leftover claude b7ec50d0        pid 77162   5d  426.0 kB  tail -n +1 -f /private/tmp/claude-501/…/tasks/b4.output
-           why:  runs in session b7ec50d0's scratch directory; no running Claude Code session has this id;
-                 no Claude Code process above it (parent: launchd)
-           run:  kill -TERM 77162
-  + 10 detached process(es) whose session is still running (--all to list)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/summary-dark.svg">
+  <img alt="One scan on a developer Mac: 30.5 GB disk can be freed, 303 MB RAM held by leftovers, 24 worktrees kept on purpose, 1 session stuck for 3 days" src="docs/img/summary-light.svg">
+</picture>
 
-WORKTREES  29 removable (4.3 GB) · 3 dangling · 13 kept
-  removable claude ~/src/api/.claude/worktrees/fix-auth   1.4 GB  (1.2 GB rebuildable)  idle 6d
-            run: git -C ~/src/api worktree remove ~/src/api/.claude/worktrees/fix-auth
-  kept: uncommitted files 6, touched recently 4, unpushed commits 2, ignored files 1
-
-DISK  21.4 GB reclaimable
-  docker images                          23.5 GB  14.2 GB reclaimable
-      run:  docker image prune -a --filter until=168h
-  codex old release 0.158.0              331.4 MB  331.4 MB reclaimable
-
-TOTAL  27.6 GB disk and 1.1 GB RAM can be reclaimed
-Nothing was changed: scan is read-only. Review each command before running it.
-```
-
-## Why
-
-Agent harnesses start MCP servers, dev servers, headless browsers, test runners and `tail -f` loops,
-and create a worktree per task. When a session crashes, is killed, or runs headless, some of that
-survives: [claude-code#1935](https://github.com/anthropics/claude-code/issues/1935),
-[codex#12491](https://github.com/openai/codex/issues/12491) and
-[codex#30408](https://github.com/openai/codex/issues/30408) report tens of gigabytes of orphaned
-processes. Vendors fix their own leaks quickly, but no single vendor sees what *your* agents started
-through the shell, what Docker kept, or what three different worktree managers left on disk.
-
-## Install
+## Try it
 
 ```sh
 brew install --cask berkkorkmaz/tap/tidewake
+tidewake scan        # what was left behind, with proof and a command per row
+tidewake sessions    # live sessions: memory, CPU, and which one looks stuck
+tidewake doctor      # your Claude Code / Codex versions against known leak fixes
 ```
 
-or, with Go 1.27+:
+macOS for now (Apple Silicon and Intel). With Go 1.27+: `go install github.com/berkkorkmaz/tidewake/cmd/tidewake@latest`.
 
-```sh
-go install github.com/berkkorkmaz/tidewake/cmd/tidewake@latest
+## What it found on one Mac
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/freed-dark.svg">
+  <img alt="Bar chart of disk that can be freed: unused Docker images 14.2 GB, scratch files of ended Claude sessions 9.3 GB, old Codex releases 3.3 GB, Docker build cache 2.3 GB, finished git worktrees 1.5 GB" src="docs/img/freed-light.svg">
+</picture>
+
+Being careful matters as much as finding things. In the same scan, tidewake refused to remove 24
+worktrees whose `git status` looked clean:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/kept-dark.svg">
+  <img alt="Bar chart of worktrees kept on purpose: 13 with commits that exist only in that worktree, 9 with ignored files like .env or local data, 1 with unpushed commits, 1 used in the last 48 hours" src="docs/img/kept-light.svg">
+</picture>
+
+The figures come from one `tidewake scan` run in October 2026; [`scripts/readme_charts.py`](scripts/readme_charts.py)
+holds the numbers and redraws the charts.
+
+## Every row shows its proof
+
+Real rows from the same Mac, trimmed:
+
+```
+leftover claude b7ec50d0   pid 77162   5d   426 kB  tail -n +1 -f /private/tmp/claude-501/…/b4.output
+         why:  runs in session b7ec50d0's scratch directory; no running Claude Code session has this id;
+               no Claude Code process above it (parent: launchd)
+         run:  kill -TERM 77162
+
+leftover claude a34ed489   pid 46142  10d   262 MB  postgres -D /opt/homebrew/var/postgresql@17  [:5432]
+         why:  carries CLAUDE_CODE_SESSION_ID=a34ed489; no running Claude Code session has this id;
+               no Claude Code process above it (parent: launchd)
+         note: serves :5432; it may be a service you use. If not: kill -TERM 46142 5573 4969 …
+
+claude pid 57616   4e206b9e leus-dbt-76   busy   3d   21 MB   0%   last activity 3d ago
+         Looks stuck: busy for 3d with no activity
+           why: status "busy" since Sep 29 11:45; no transcript write for 3d; 0.0% CPU over 3s
+           tip: check its terminal; Esc stops the current turn
 ```
 
-macOS today; Linux is planned. The binary is not notarized yet; the cask clears the quarantine flag
-so Gatekeeper does not block it.
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `tidewake scan` | Leftover processes, worktrees and disk, with proof and a cleanup command per row |
-| `tidewake scan --all` | Also list kept worktrees and processes whose session is still running |
-| `tidewake scan --json` | Machine-readable output |
-| `tidewake scan --root ~/src/app` | Also check a repo no session has used yet |
-| `tidewake sessions` | Live Claude Code and Codex sessions: memory, CPU, last activity, and flags for stuck, idle-but-heavy or spinning sessions |
-| `tidewake doctor` | Your Claude Code / Codex versions against known leak fixes, MCP servers duplicated per session, which state sources were readable |
-
-Set `TIDEWAKE_DEBUG=1` to print how long each stage took.
+The first row gets a command. The second does not: it is a database, and tidewake will not guess
+that you are done with it. The third comes from `tidewake sessions`.
 
 ## How it decides
 
-**Processes.** Claude Code and Codex export a session id to every child process
-(`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`). tidewake reads only those allow-listed variables
-(never tokens) and checks the session against the harness's own state: `claude agents --json`,
-`~/.claude/sessions/<pid>.json` (with the process start time, so a reused PID never counts as alive),
-and Codex's thread database. Then:
+```mermaid
+flowchart LR
+    P[process] --> A{under a live Claude Code<br/>or Codex process?}
+    A -- yes --> OK[not listed]
+    A -- no --> B{carries a session id,<br/>or runs in a session's<br/>scratch folder?}
+    B -- yes --> C{that session<br/>still running?}
+    C -- yes --> D[detached: shown with --all,<br/>no command]
+    C -- no --> E[leftover]
+    B -- no --> F{orphaned, group leader gone,<br/>agent path or marker?}
+    F -- yes --> G[suspect]
+    F -- no --> OK
+    E --> H{listens on a port, desktop app,<br/>or session state unreadable?}
+    G --> H
+    H -- yes --> N[note only, no command]
+    H -- no --> K[run: kill -TERM pids]
+```
 
-| Verdict | Meaning |
+**Processes.** Claude Code and Codex give every child process its session id
+(`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`). tidewake reads only those allow-listed variables,
+never tokens, and checks the session against each tool's own state (`claude agents --json`,
+`~/.claude/sessions/`, Codex's thread database). A reused PID never counts as alive: start times
+must match. A row's kill list stops at anything that belongs elsewhere (a live session, another
+session, a launchd service, the shell you ran tidewake from) and says how many it left out.
+
+**Worktrees.** A worktree is `removable` only when every check passes:
+
+| Check | Why |
 |---|---|
-| `leftover` | Its session has ended and no harness process is above it |
-| `suspect` | No session id, but adopted by launchd, its process group leader is gone, and it runs from an agent path such as a Claude scratchpad |
-| `detached` | Its session is still running; shown only with `--all` |
-| `stuck` | Exiting or zombie; only its parent can clear it |
+| not locked, no process running inside it | an agent may still be using it |
+| no uncommitted or untracked files | that is work |
+| no ignored files outside rebuildable folders | `git worktree remove` deletes ignored files too, such as `.env` |
+| HEAD is on a remote, and every commit made there is on some branch, tag or remote | removing a worktree deletes its reflog, the last pointer to commits left behind |
+| untouched for 48 hours (`--idle`) | recent work may be in progress |
 
-A process without the variable is still attributed when it runs from a session's scratch directory
-(`/tmp/claude-<uid>/<project>/<session-id>/`).
+Rebuildable folders (`node_modules`, `.venv`, `target`, `.terraform`, `dbt_packages` and similar) do
+not block removal.
 
-Never flagged: anything under a live Claude Code or Codex process, launchd services, other users'
-processes, tidewake itself and the shell it runs in.
-
-A row gets a `kill -TERM` command only when tidewake is sure. There is no command when session state
-could not be read, when anything in the tree listens on a port (it may be a database or dev server you
-use), or for a desktop app. Children are folded into one row, but the list stops at any process that
-belongs to a running session or to a different session, and the row says how many were left out.
-`kill` commands use PIDs from the scan, so rescan before running them later.
-
-**Worktrees.** Found from every repo a session has worked in. A worktree is `removable` only when
-all of these hold:
-
-- not locked, and no running process has its working directory inside it
-- no uncommitted or untracked files
-- no ignored files outside rebuildable folders (`git worktree remove` deletes ignored files too,
-  so a `.env` or a data dump keeps it)
-- HEAD is contained in a remote branch, and every commit made in the worktree is on some branch, tag
-  or remote (removing a worktree deletes its reflog, the last pointer to commits left behind by a checkout)
-- git has not touched it for 48 hours (`--idle` to change)
-
-Registrations whose folder is gone are listed as `dangling` with the `git worktree prune` command.
-
-**Disk.** Old Codex releases that are neither `current` nor in use, Docker images and build cache
-(week-old or budget-based prune commands), and the size of transcript stores. Stopped containers and
-volumes are listed for review only, since both can hold data.
+**Disk.** Old Codex releases that are neither current nor running, Docker images and build cache
+(week-old or size-budget prune commands), and scratch folders of ended Claude sessions. Stopped
+containers and volumes are listed for review only, because both can hold data.
 
 ## Session health
 
-`tidewake sessions` lists every live Claude Code session and top-level Codex process with its memory
-(including MCP servers and shells under it), CPU use over a 3-second sample, and when its transcript
-was last written (file times only, never contents). A flag needs every one of its signals:
+`tidewake sessions` shows each live Claude Code session and top-level Codex process with its memory
+(including MCP servers and shells under it), CPU over a 3-second sample, and when its transcript was
+last written. It reads file times only, never transcript contents. A flag needs every signal:
 
 | Flag | Signals |
 |---|---|
-| looks stuck | status `busy` for 2h+, no transcript write for 2h+, under 1% CPU during the sample |
-| idle, holding memory | status `idle`, no transcript write for 24h+, 1 GB+ in its process tree |
-| CPU while idle | status `idle` for 5m+, 50%+ CPU during the sample |
-| high memory | 4 GB+ in its process tree; names the largest part |
+| looks stuck | `busy` for 2h+, no transcript write for 2h+, under 1% CPU |
+| idle, holding memory | `idle`, no transcript write for 24h+, 1 GB+ in its process tree |
+| CPU while idle | `idle` for 5m+, 50%+ CPU |
+| high memory | 4 GB+ in its process tree, with the largest part named |
 
-A healthy busy session can go half an hour without writing, so the limits are in hours.
-Change them with `--stuck`, `--idle` and `--ram`. Nothing is stopped.
+A healthy busy session can go half an hour without writing, so the limits are in hours. Change them
+with `--stuck`, `--idle` and `--ram`.
 
-## Keeping up with releases
+## Safe by design
 
-Everything that changes between harness versions lives in [`internal/rules/pack.json`](internal/rules/pack.json):
-process signatures, state paths, and a table of known leaks with the version that fixed them.
-A daily workflow reads the Claude Code changelog and Codex releases and opens a pull request listing
-new lines about leaks, orphans, worktrees and cleanup. A person reviews them before the pack changes.
+- **Read-only.** No command stops a process or deletes a file. `--json` output is available for scripts.
+- **No network.** Nothing is sent anywhere.
+- **No downloads from iCloud.** If your repos live in an iCloud-synced folder, tidewake's git checks
+  do not re-read offloaded files, so a scan never triggers a download.
+- **Fast.** 3 to 7 seconds on the Macs tested so far; about 10 s on one with half a million scratch
+  files. Set `TIDEWAKE_DEBUG=1` to see timings.
+
+## Keeps up with Claude Code and Codex
+
+Everything that changes between releases lives in [`internal/rules/pack.json`](internal/rules/pack.json):
+process signatures, state paths, and known leaks with the version that fixed them. A daily workflow
+reads the Claude Code changelog and Codex releases and opens a pull request with new lines about
+leaks, orphans, worktrees and cleanup. A person reviews each one. `tidewake doctor` then tells you
+which known leaks affect the versions you are running.
 
 ## Compared with
 
-- **worktrunk**, **Claude Code / Codex built-in cleanup**: manage worktrees they created. tidewake
-  reads across them and checks ignored files before suggesting removal.
-- **abtop**: a live monitor of agent sessions. tidewake is a one-shot audit with proof per row.
-- **Mole**, **npkill**, **kondo**: general disk cleaners that know nothing about agents.
-- **ccusage**: tokens and cost. Not covered here.
+| Tool | Focus | Difference |
+|---|---|---|
+| worktrunk, Claude Code / Codex built-in cleanup | worktrees they created | tidewake reads across all of them and checks ignored files and reflog-only commits |
+| abtop | live monitor of agent sessions | tidewake is a one-shot audit with proof per row |
+| Mole, npkill, kondo | general disk cleaning | they do not know which agent session made what |
+| ccusage | tokens and cost | not covered here |
 
 ## Roadmap
 
-1. `tidewake clean`: run selected rows, with a preview, a receipt and undo (worktrees snapshot
-   their HEAD to `refs/tidewake/` first).
-2. Docker attribution: which containers an agent session started.
-3. Optional background sweep and hook installer.
-4. Linux.
-
-## Safety
-
-tidewake runs `ps` and `lsof` (in the C locale), `launchctl list`, `git` (with `--no-optional-locks`,
-so it never rewrites an index), `claude agents --json`, `sqlite3 -readonly` and `docker system df`.
-It does not write anywhere and sends nothing over the network. Set `TIDEWAKE_DEBUG=1` to see timings.
+1. `tidewake clean`: run the rows you pick, with a preview, a receipt, and undo for worktrees.
+2. Context audit: what instructions, rules, skills and MCP servers load before you type, including
+   Codex silently cutting `AGENTS.md` at 32 KB ([codex#13386](https://github.com/openai/codex/issues/13386)).
+3. Linux.
 
 ## License
 
