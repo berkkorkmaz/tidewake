@@ -49,10 +49,17 @@ through the shell, what Docker kept, or what three different worktree managers l
 ## Install
 
 ```sh
+brew install --cask berkkorkmaz/tap/tidewake
+```
+
+or, with Go 1.27+:
+
+```sh
 go install github.com/berkkorkmaz/tidewake/cmd/tidewake@latest
 ```
 
-macOS today; Linux is planned.
+macOS today; Linux is planned. The binary is not notarized yet; the cask clears the quarantine flag
+so Gatekeeper does not block it.
 
 ## Commands
 
