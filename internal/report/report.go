@@ -191,6 +191,10 @@ func reasonClass(r string) string {
 		return "unpushed commits"
 	case strings.HasPrefix(r, "locked"):
 		return "locked"
+	case strings.Contains(r, "uncommitted"):
+		return "uncommitted files"
+	case strings.HasPrefix(r, "keeps ignored files"):
+		return "ignored files"
 	}
 	return r
 }

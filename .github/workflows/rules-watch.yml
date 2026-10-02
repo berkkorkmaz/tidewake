@@ -1,0 +1,42 @@
+name: rules-watch
+
+# Daily: read Claude Code and Codex release notes and open a pull request
+# listing lines about leaks, orphans, worktrees or cleanup for review.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: check release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./cmd/rulesbot -state internal/rules/watch-state.json -out "$RUNNER_TEMP/release-notes.md"
+      - name: open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- internal/rules/watch-state.json; then
+            echo "no new releases"
+            exit 0
+          fi
+          branch="rules-watch/$(date -u +%Y-%m-%d)"
+          git config user.name "tidewake-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add internal/rules/watch-state.json
+          git commit -m "rules-watch: new Claude Code / Codex releases to review"
+          git push -u origin "$branch"
+          gh pr create --title "Review new harness release notes" --body-file "$RUNNER_TEMP/release-notes.md"
