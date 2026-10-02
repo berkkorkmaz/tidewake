@@ -33,9 +33,10 @@ func TestParseRejectsBadPacks(t *testing.T) {
 
 func TestParseVersion(t *testing.T) {
 	cases := map[string]string{
-		"2.1.287 (Claude Code)": "2.1.287",
-		"codex-cli 0.160.0":     "0.160.0",
-		"rust-v0.148.0":         "0.148.0",
+		"2.1.287 (Claude Code)":       "2.1.287",
+		"codex-cli 0.160.0":           "0.160.0",
+		"rust-v0.148.0":               "0.148.0",
+		"codex-cli 0.155.0-alpha.9.2": "0.155.0",
 	}
 	for in, want := range cases {
 		v, err := ParseVersion(in)

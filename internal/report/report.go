@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	maxSessionName = 20
 	commandWidth   = 72
 	maxKeptReasons = 4
 	kb             = 1024
@@ -77,8 +78,8 @@ func (p printer) processes(r *scan.Result, all bool) {
 		p.line("  none")
 	}
 	for _, f := range shown {
-		p.line("  %-8s %-6s %-22s pid %-6d %5s  %8s  %s", f.Kind, f.Harness, session(f), f.PID,
-			age(r.Taken, f.Started), mem(f.TreeRSSKB), p.truncate(f.Command))
+		p.line("  %-8s %-6s %-30s pid %-6d %5s  %8s  %s%s", f.Kind, f.Harness, session(f), f.PID,
+			age(r.Taken, f.Started), mem(f.TreeRSSKB), p.truncate(displayCommand(f.Command)), portsTag(f.Ports))
 		if len(f.TreePIDs) > 1 {
 			p.line("           tree: %d processes", len(f.TreePIDs))
 		}
@@ -263,7 +264,54 @@ func (p printer) sources(src map[string]string) {
 	}
 	sort.Strings(bad)
 	p.line("")
-	p.line("Not read (not installed or not running): %s. Run `tidewake doctor` for details.", strings.Join(bad, ", "))
+	p.line("Not read:")
+	for _, name := range bad {
+		p.line("  %-28s %s", name, shortReason(src[name]))
+	}
+}
+
+const maxReasonLen = 90
+
+// shortReason keeps the first line of an error, which is usually the useful part.
+func shortReason(s string) string {
+	s, _, _ = strings.Cut(s, "\n")
+	if r := []rune(s); len(r) > maxReasonLen {
+		return string(r[:maxReasonLen-1]) + "…"
+	}
+	return s
+}
+
+// displayCommand shows the program's base name and its arguments, so the part
+// that tells two rows apart is not cut off by a long install path.
+func displayCommand(cmd string) string {
+	if !strings.HasPrefix(cmd, "/") {
+		return cmd
+	}
+	prefix := cmd
+	if i := strings.Index(cmd, " -"); i >= 0 {
+		prefix = cmd[:i]
+	}
+	slash := strings.LastIndex(prefix, "/")
+	end := len(prefix)
+	if sp := strings.Index(prefix[slash:], " "); sp >= 0 {
+		end = slash + sp
+	}
+	return cmd[slash+1:end] + cmd[end:]
+}
+
+func portsTag(ports []int) string {
+	if len(ports) == 0 {
+		return ""
+	}
+	seen := map[int]bool{}
+	var s []string
+	for _, p := range ports {
+		if !seen[p] {
+			seen[p] = true
+			s = append(s, fmt.Sprintf(":%d", p))
+		}
+	}
+	return "  [" + strings.Join(s, " ") + "]"
 }
 
 // Doctor writes the human doctor report.
@@ -276,7 +324,12 @@ func Doctor(w io.Writer, r doctor.Report) {
 			p.line("%s: not found on PATH", h.Label)
 			continue
 		}
-		p.line("%s %s · %d known leak fix(es) already in your version", h.Label, h.Version, h.Fixed)
+		p.line("%s %s · %d known leak fix(es) already in this version", h.Label, h.Version, h.Fixed)
+		if len(h.Installs) > 1 {
+			for _, in := range h.Installs {
+				p.line("  install  %-24s %s", installState(in), p.path(in.Path)+"  ("+in.Version+")")
+			}
+		}
 		for _, is := range h.Affected {
 			p.line("  UPGRADE  %s (fixed in %s)", is.Title, is.FixedIn)
 		}
@@ -291,11 +344,11 @@ func Doctor(w io.Writer, r doctor.Report) {
 	}
 	p.line("")
 	if len(r.MCPDuplicates) == 0 {
-		p.line("MCP: no server runs once per session")
+		p.line("MCP: no MCP server is running more than once")
 	} else {
-		p.line("MCP: these servers run once per session")
+		p.line("MCP: these servers run several copies at once")
 		for _, g := range r.MCPDuplicates {
-			p.line("  %d sessions · %8s  %s", g.Sessions, mem(g.RSSKB), p.truncate(g.Command))
+			p.line("  %d copies in %d session(s) · %8s  %s", g.Copies, g.Sessions, mem(g.RSSKB), p.truncate(displayCommand(g.Command)))
 		}
 		p.line("  A stateless server can run once behind an MCP gateway (for example mcp-proxy or MetaMCP)")
 		p.line("  and be added to each session as an HTTP server. Keep browser and stateful servers per session.")
@@ -330,11 +383,11 @@ func session(f attrib.Finding) string {
 		id = id[:8]
 	}
 	if f.SessionName != "" {
-		name := f.SessionName
-		if len(name) > 12 {
-			name = name[:12]
+		name := []rune(f.SessionName)
+		if len(name) > maxSessionName {
+			name = append(name[:maxSessionName-1], '…')
 		}
-		return id + " " + name
+		return id + " " + string(name)
 	}
 	return id
 }
@@ -386,4 +439,16 @@ func lastElem(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+func installState(in doctor.Install) string {
+	switch {
+	case in.Running && in.OnPath:
+		return "running, on PATH"
+	case in.Running:
+		return "running"
+	case in.OnPath:
+		return "on PATH, not running"
+	}
+	return "installed"
 }

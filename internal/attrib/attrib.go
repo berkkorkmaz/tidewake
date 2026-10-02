@@ -47,6 +47,7 @@ type Finding struct {
 	TreePIDs    []int     `json:"treePids"`
 	TreeRSSKB   int64     `json:"treeRssKb"`
 	Ports       []int     `json:"ports,omitempty"`
+	Exposed     []int     `json:"exposedPorts,omitempty"`
 	Proof       []string  `json:"proof"`
 	Suggest     string    `json:"suggest,omitempty"`
 	Caution     string    `json:"caution,omitempty"`
@@ -318,8 +319,7 @@ func (c *classifier) buildTrees(flagged map[int]*Finding) []Finding {
 		}
 		root := c.climb(c.in.Snap.Get(f.PID), f)
 		if root.PID != f.PID {
-			f.Proof = append(f.Proof, fmt.Sprintf("started by %s (pid %d) in the same orphaned process group", root.Name(), root.PID))
-			f.PID, f.PPID, f.Command, f.Cwd, f.Started = root.PID, root.PPID, root.Command, root.Cwd, root.Started
+			c.moveToRoot(f, root)
 		}
 		if prev, ok := roots[f.PID]; !ok || f.Kind == Leftover && prev.Kind != Leftover {
 			roots[f.PID] = f
@@ -348,6 +348,29 @@ func (c *classifier) buildTrees(flagged map[int]*Finding) []Finding {
 		out = append(out, *f)
 	}
 	return out
+}
+
+// moveToRoot rewrites a finding found on a child so the row and its proof
+// describe the orphaned group root.
+func (c *classifier) moveToRoot(f *Finding, root *proc.Process) {
+	child := f.PID
+	proof := make([]string, 0, len(f.Proof)+1)
+	for _, line := range f.Proof {
+		if strings.HasPrefix(line, "no ") && strings.Contains(line, " process above it") {
+			continue // recomputed below for the root
+		}
+		if strings.HasPrefix(line, "parent exited") || strings.HasPrefix(line, "its process group") || strings.HasPrefix(line, "it leads") {
+			continue
+		}
+		if strings.HasPrefix(line, "session ") || strings.HasPrefix(line, "no running") {
+			proof = append(proof, line)
+			continue
+		}
+		proof = append(proof, fmt.Sprintf("its child pid %d %s", child, line))
+	}
+	proof = append(proof, fmt.Sprintf("it is the orphaned root of that process group (parent: %s)", c.parentName(root)))
+	f.Proof = proof
+	f.PID, f.PPID, f.Command, f.Cwd, f.Started = root.PID, root.PPID, root.Command, root.Cwd, root.Started
 }
 
 // climb walks up from p while the parent is an orphaned member of the same
@@ -413,6 +436,7 @@ func (c *classifier) fillTree(f *Finding) {
 		f.TreePIDs = append(f.TreePIDs, p.PID)
 		f.TreeRSSKB += p.RSSKB
 		f.Ports = append(f.Ports, p.Ports...)
+		f.Exposed = append(f.Exposed, p.Exposed...)
 		queue = append(queue, c.children[p.PID]...)
 	}
 	if excluded > 0 {
@@ -425,7 +449,7 @@ func (c *classifier) fillTree(f *Finding) {
 func suggestion(f *Finding) (cmd, caution string) {
 	switch {
 	case f.Kind == Detached:
-		return "", "its session is still running; stop it from that session if unwanted"
+		return "", "its session is still running; stop it from that session if unwanted" + exposedNote(f)
 	case f.Kind == Stuck:
 		return "", "clears when its parent exits"
 	case f.unsure:
@@ -433,9 +457,17 @@ func suggestion(f *Finding) (cmd, caution string) {
 	case isDesktopApp(f.Command):
 		return "", "a desktop app, probably opened on purpose; quit it normally if unwanted"
 	case len(f.Ports) > 0:
-		return "", "serves " + portList(f.Ports) + "; it may be a service you use, so stop it yourself if not"
+		return "", "serves " + portList(f.Ports) + "; it may be a service you use. If not: kill -TERM " + joinInts(f.TreePIDs) +
+			exposedNote(f)
 	}
 	return "kill -TERM " + joinInts(f.TreePIDs), ""
+}
+
+func exposedNote(f *Finding) string {
+	if len(f.Exposed) == 0 {
+		return ""
+	}
+	return ". " + portList(f.Exposed) + " listens on all network interfaces, so other machines on your network can reach it"
 }
 
 func portList(ports []int) string {

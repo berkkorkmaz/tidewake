@@ -259,3 +259,14 @@ func TestPushedCommitInReflogIsFine(t *testing.T) {
 		t.Fatalf("got kind=%s reasons=%v", g.Kind, g.Reasons)
 	}
 }
+
+// iCloud changes a file's ctime when it offloads it; if git trusted ctime it
+// would re-read, and so re-download, offloaded files on every scan.
+func TestGitNeverTrustsCtime(t *testing.T) {
+	joined := strings.Join(readOnlyGit, " ")
+	for _, want := range []string{"--no-optional-locks", "core.trustctime=false", "core.checkStat=minimal"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("readOnlyGit missing %q: %v", want, readOnlyGit)
+		}
+	}
+}

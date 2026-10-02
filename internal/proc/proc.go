@@ -20,10 +20,14 @@ type Process struct {
 	RSSKB   int64
 	Started time.Time
 	Command string
+	// Exe is the executable path the kernel recorded at exec time.
+	Exe string
 	// Env holds only allow-listed attribution variables, never secrets.
 	Env   map[string]string
 	Cwd   string
 	Ports []int
+	// Exposed lists ports bound to every network interface, not just loopback.
+	Exposed []int
 	// LaunchdJob marks a process launchd runs as a service; launchd owns its lifecycle.
 	LaunchdJob bool
 }

@@ -100,6 +100,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		st.Sources["docker system df"] = err
 	}
 	stage("docker")
+	res.Disk = append(res.Disk, disk.ClaudeScratch(claudeScratchRoot(), claudeSessionState(st), func(dir string) bool {
+		return len(inUseIndex(snap)(dir)) > 0
+	})...)
 	res.Disk = append(res.Disk, disk.HarnessStores(opts.ClaudeHome, opts.CodexHome)...)
 	stage("stores")
 
@@ -109,7 +112,41 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			res.Sources[src] = e.Error()
 		}
 	}
+	// Empty sections print as [] in JSON, not null.
+	if res.Processes == nil {
+		res.Processes = []attrib.Finding{}
+	}
+	if res.Worktrees == nil {
+		res.Worktrees = []worktree.Worktree{}
+	}
+	if res.Disk == nil {
+		res.Disk = []disk.Item{}
+	}
 	return res, nil
+}
+
+// claudeScratchRoot is where Claude Code keeps per-session scratch folders.
+func claudeScratchRoot() string {
+	return filepath.Join("/private/tmp", "claude-"+strconv.Itoa(os.Getuid()))
+}
+
+// claudeSessionState applies the classifier's liveness rule to a session id.
+func claudeSessionState(st *harness.State) disk.SessionState {
+	readable := true
+	for src, err := range st.Sources {
+		if strings.HasPrefix(src, "claude ") && err != nil {
+			readable = false
+		}
+	}
+	return func(id string) (bool, string) {
+		if s := st.Lookup("claude", id); s != nil {
+			return !s.Alive, s.Why
+		}
+		if readable {
+			return true, "no running Claude Code session has this id"
+		}
+		return false, ""
+	}
 }
 
 // worktreeSeeds collects every directory that may sit inside a repo with agent worktrees.

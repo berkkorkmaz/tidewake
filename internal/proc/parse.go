@@ -136,6 +136,38 @@ func ParseLsofPaths(out []byte) []string {
 	return paths
 }
 
+// ParseLsofExposed returns, per pid, the listening ports bound to all
+// interfaces ("*:8765", "0.0.0.0:", "[::]:"), which other machines can reach.
+func ParseLsofExposed(out []byte) map[int][]int {
+	res := map[int][]int{}
+	seen := map[[2]int]bool{}
+	pid := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 2 {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			pid, _ = strconv.Atoi(line[1:])
+		case 'n':
+			idx := strings.LastIndex(line, ":")
+			if idx < 0 || pid == 0 {
+				continue
+			}
+			host := line[1:idx]
+			port, err := strconv.Atoi(line[idx+1:])
+			if err != nil || seen[[2]int{pid, port}] || !wildcardHost(host) {
+				continue
+			}
+			seen[[2]int{pid, port}] = true
+			res[pid] = append(res[pid], port)
+		}
+	}
+	return res
+}
+
+func wildcardHost(h string) bool { return h == "*" || h == "0.0.0.0" || h == "[::]" }
+
 // ParseLsofPorts parses `lsof -F pn -iTCP -sTCP:LISTEN` into pid -> ports.
 func ParseLsofPorts(out []byte) map[int][]int {
 	res := map[int][]int{}
@@ -213,6 +245,19 @@ func ParseProcArgs2(buf []byte) (map[string]string, error) {
 		rest = rest[end+1:]
 	}
 	return env, nil
+}
+
+// ProcArgs2Exe returns the executable path from a KERN_PROCARGS2 buffer.
+func ProcArgs2Exe(buf []byte) string {
+	const argcSize = 4
+	if len(buf) <= argcSize {
+		return ""
+	}
+	rest := buf[argcSize:]
+	if end := bytes.IndexByte(rest, 0); end >= 0 {
+		return string(rest[:end])
+	}
+	return ""
 }
 
 func skipString(b []byte) []byte {

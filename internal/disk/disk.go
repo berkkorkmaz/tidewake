@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,19 +71,72 @@ func inUse(dir string, paths []string) bool {
 	return false
 }
 
+// minScratchBytes hides near-empty scratch folders from the report.
+const minScratchBytes = 1 << 20
+
+// SessionState answers whether a Claude session ended, with tidewake's usual
+// rule: unknown ids count as ended only when session state was readable.
+type SessionState func(id string) (ended bool, why string)
+
+// sessionDirPattern matches a Claude Code session id folder name.
+var sessionDirPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// ClaudeScratch lists per-session scratch folders under root
+// (/private/tmp/claude-<uid>/<project>/<session-id>). Folders of ended
+// sessions that no process uses are reclaimable.
+func ClaudeScratch(root string, state SessionState, inUse func(dir string) bool) []Item {
+	dirs, _ := filepath.Glob(filepath.Join(root, "*", "*"))
+	var items []Item
+	for _, dir := range dirs {
+		id := filepath.Base(dir)
+		if !sessionDirPattern.MatchString(id) {
+			continue
+		}
+		size := DirSize(dir)
+		if size < minScratchBytes {
+			continue
+		}
+		ended, why := state(id)
+		item := Item{Category: "claude scratch", Path: dir, Bytes: size}
+		switch {
+		case !ended:
+			item.Note = "session " + id[:8] + " is still running"
+		case inUse(dir):
+			item.Note = "session " + id[:8] + " ended, but a process still uses this folder"
+		default:
+			item.Reclaimable = size
+			item.Note = "session " + id[:8] + " ended: " + why
+			item.Suggest = "trash " + shell.Quote(dir)
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
 // HarnessStores reports transcript and log stores; informational only.
 func HarnessStores(claudeHome, codexHome string) []Item {
 	stores := []struct{ category, path, note string }{
 		{"claude transcripts", filepath.Join(claudeHome, "projects"), "pruned by Claude Code after cleanupPeriodDays"},
 		{"codex sessions", filepath.Join(codexHome, "sessions"), "Codex has no retention setting; archive old threads in Codex"},
 		{"codex archived sessions", filepath.Join(codexHome, "archived_sessions"), ""},
+		{"codex temp", filepath.Join(codexHome, ".tmp"), ""},
+	}
+	for _, pattern := range []string{"thread_history_*.sqlite", "logs_*.sqlite"} {
+		matches, _ := filepath.Glob(filepath.Join(codexHome, pattern))
+		for _, m := range matches {
+			stores = append(stores, struct{ category, path, note string }{"codex " + strings.SplitN(filepath.Base(m), "_", 2)[0] + " db", m, "used by Codex; shown for size only"})
+		}
 	}
 	var items []Item
 	for _, s := range stores {
 		if _, err := os.Stat(s.path); err != nil {
 			continue
 		}
-		items = append(items, Item{Category: s.category, Path: s.path, Bytes: DirSize(s.path), Note: s.note})
+		size := DirSize(s.path)
+		if info, err := os.Stat(s.path); err == nil && !info.IsDir() {
+			size = info.Size()
+		}
+		items = append(items, Item{Category: s.category, Path: s.path, Bytes: size, Note: s.note})
 	}
 	return items
 }

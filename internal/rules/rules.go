@@ -86,6 +86,10 @@ type Version []int
 func ParseVersion(s string) (Version, error) {
 	for _, tok := range strings.Fields(s) {
 		tok = strings.TrimPrefix(strings.TrimPrefix(tok, "rust-"), "v")
+		// Pre-release and build suffixes compare as their base: 0.155.0-alpha.9 -> 0.155.0.
+		if i := strings.IndexAny(tok, "-+"); i >= 0 {
+			tok = tok[:i]
+		}
 		parts := strings.Split(tok, ".")
 		if len(parts) < 2 {
 			continue

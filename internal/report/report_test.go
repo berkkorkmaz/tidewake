@@ -38,7 +38,7 @@ func TestScanReportTotalsAndHiding(t *testing.T) {
 	for _, want := range []string{
 		"leftover", "kill -TERM 10 11", "tree: 2 processes", "why:  p1; p2",
 		"+ 1 detached", "~/r/wt", "2 registration(s) in ~/r", "kept: touched recently 1",
-		"TOTAL  4.0 GB disk and 2.0 MB RAM", "Not read (not installed or not running): codex threads db",
+		"TOTAL  4.0 GB disk and 2.0 MB RAM", "Not read:", "codex threads db", "no db",
 		"Nothing was changed",
 	} {
 		if !strings.Contains(out, want) {
@@ -64,14 +64,14 @@ func TestDoctorReport(t *testing.T) {
 				Open:     []rules.Issue{{Title: "leak B", URL: "https://x", Covers: "scan lists it"}}},
 			{Label: "Codex"},
 		},
-		MCPDuplicates: []doctor.MCPGroup{{Command: "node mcp", Sessions: 3, RSSKB: 1000}},
+		MCPDuplicates: []doctor.MCPGroup{{Command: "node mcp", Copies: 3, Sessions: 3, RSSKB: 1000}},
 		Sources:       map[string]string{"a": "ok"},
 	}
 	var buf bytes.Buffer
 	Doctor(&buf, rep)
 	out := buf.String()
 	for _, want := range []string{"Claude Code 2.1.250", "UPGRADE  leak A (fixed in 2.1.283)", "OPEN     leak B · tidewake: scan lists it",
-		"Codex: not found", "3 sessions", "MCP gateway"} {
+		"Codex: not found", "3 copies in 3 session(s)", "MCP gateway"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor missing %q\n%s", want, out)
 		}
@@ -83,6 +83,20 @@ func TestSize(t *testing.T) {
 	for in, want := range cases {
 		if got := size(in); got != want {
 			t.Errorf("size(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestDisplayCommand(t *testing.T) {
+	cases := map[string]string{
+		"/opt/homebrew/Cellar/python@3.14/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python -m http.server 8765": "Python -m http.server 8765",
+		"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new":                                                               "Brave Browser --headless=new",
+		"node scripts/start.mjs": "node scripts/start.mjs",
+		"/usr/bin/tail":          "tail",
+	}
+	for in, want := range cases {
+		if got := displayCommand(in); got != want {
+			t.Errorf("displayCommand(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

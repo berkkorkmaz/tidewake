@@ -53,7 +53,9 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 	}
 	// lsof exits 1 when some processes are unreadable; partial output is still valid.
 	cwds := ParseLsofPathByPID((<-cwdCh).out)
-	ports := ParseLsofPorts((<-portCh).out)
+	portOut := (<-portCh).out
+	ports := ParseLsofPorts(portOut)
+	exposed := ParseLsofExposed(portOut)
 	jobs := ParseLaunchctlList((<-jobsCh).out)
 
 	if os.Getenv("TIDEWAKE_DEBUG") != "" {
@@ -63,22 +65,23 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 	for pid, p := range procs {
 		p.Cwd = cwds[pid]
 		p.Ports = ports[pid]
+		p.Exposed = exposed[pid]
 		p.LaunchdJob = jobs[pid]
 		if p.UID == me {
-			p.Env = readEnv(pid)
+			p.Env, p.Exe = readArgs(pid)
 		}
 	}
 	return &Snapshot{Taken: time.Now(), Procs: procs}, nil
 }
 
-func readEnv(pid int) map[string]string {
+func readArgs(pid int) (map[string]string, string) {
 	buf, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	env, err := ParseProcArgs2(buf)
 	if err != nil {
-		return nil
+		return nil, ""
 	}
-	return env
+	return env, ProcArgs2Exe(buf)
 }

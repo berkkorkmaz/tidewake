@@ -81,3 +81,31 @@ func TestDirSizeSkipsSymlinks(t *testing.T) {
 		t.Fatalf("DirSize = %d, want 10", got)
 	}
 }
+
+func TestClaudeScratch(t *testing.T) {
+	root := t.TempDir()
+	ended := filepath.Join(root, "-Users-me-proj", "0d1bd55b-1111-2222-3333-444455556666")
+	live := filepath.Join(root, "-Users-me-proj", "c5f4b453-1111-2222-3333-444455556666")
+	busy := filepath.Join(root, "-Users-me-proj", "aaaaaaaa-1111-2222-3333-444455556666")
+	tiny := filepath.Join(root, "-Users-me-proj", "bbbbbbbb-1111-2222-3333-444455556666")
+	for _, d := range []string{ended, live, busy} {
+		write(t, filepath.Join(d, "scratchpad", "big.bin"), 2<<20)
+	}
+	write(t, filepath.Join(tiny, "x"), 10)
+	write(t, filepath.Join(root, "-Users-me-proj", "not-a-session", "big.bin"), 2<<20)
+	state := func(id string) (bool, string) { return id[0] != 'c', "fixture" }
+	inUse := func(dir string) bool { return dir == busy }
+	got := map[string]Item{}
+	for _, it := range ClaudeScratch(root, state, inUse) {
+		got[filepath.Base(it.Path)[:8]] = it
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 rows (tiny and non-session folders hidden), got %+v", got)
+	}
+	if got["0d1bd55b"].Reclaimable == 0 || got["0d1bd55b"].Suggest == "" {
+		t.Errorf("ended session folder must be reclaimable: %+v", got["0d1bd55b"])
+	}
+	if got["c5f4b453"].Suggest != "" || got["aaaaaaaa"].Suggest != "" {
+		t.Errorf("live or in-use folders must not be suggested: %+v %+v", got["c5f4b453"], got["aaaaaaaa"])
+	}
+}

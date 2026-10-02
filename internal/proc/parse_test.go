@@ -83,6 +83,9 @@ func TestParseProcArgs2KeepsOnlyAllowListedEnv(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
+	if exe := ProcArgs2Exe(buf); exe != "/usr/bin/node" {
+		t.Fatalf("exe = %q", exe)
+	}
 }
 
 func TestParseProcArgs2DoesNotReadArgvAsEnv(t *testing.T) {
@@ -124,6 +127,14 @@ func TestSnapshotTreeHelpers(t *testing.T) {
 	}
 	if s.AliveSince(10, started.Add(time.Hour)) || s.AliveSince(10, started.Add(-3*time.Hour)) {
 		t.Fatal("AliveSince must detect PID reuse and time-zone skew")
+	}
+}
+
+func TestParseLsofExposed(t *testing.T) {
+	out := []byte("p100\nf5\nn*:8765\nf6\nn127.0.0.1:8766\nf7\nn[::1]:3000\np200\nf3\nn0.0.0.0:5432\nf4\nn[::]:5432\n")
+	got := ParseLsofExposed(out)
+	if !reflect.DeepEqual(got, map[int][]int{100: {8765}, 200: {5432}}) {
+		t.Fatalf("got %v", got)
 	}
 }
 

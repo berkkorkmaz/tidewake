@@ -276,8 +276,11 @@ func TestNoCommandWhenUnsureOrServing(t *testing.T) {
 	if got[70].Suggest != "" || got[70].Kind != Suspect {
 		t.Errorf("unknown liveness must not get a command: %+v", got[70])
 	}
-	if got[71].Suggest != "" || !strings.Contains(got[71].Caution, ":5432") {
-		t.Errorf("a listening service must not get a command: %+v", got[71])
+	if got[71].Suggest != "" || !strings.Contains(got[71].Caution, ":5432") || !strings.Contains(got[71].Caution, "If not: kill -TERM 71") {
+		t.Errorf("a listening service gets the command only inside its note: %+v", got[71])
+	}
+	if strings.Contains(got[71].Caution, "all network interfaces") {
+		t.Errorf("loopback-only service must not get the exposure warning: %+v", got[71])
 	}
 }
 
@@ -292,8 +295,14 @@ func TestClimbsToOrphanedGroupRoot(t *testing.T) {
 	if _, child := got[81]; child {
 		t.Fatal("finding must move to the group root")
 	}
-	if fd := got[80]; fd.Suggest != "kill -TERM 80 81" {
+	fd := got[80]
+	if fd.Suggest != "kill -TERM 80 81" {
 		t.Fatalf("got %+v", fd)
+	}
+	proof := strings.Join(fd.Proof, "; ")
+	if !strings.Contains(proof, "its child pid 81 carries CLAUDE_CODE_SESSION_ID") || !strings.Contains(proof, "(parent: launchd)") ||
+		strings.Contains(proof, "parent: npm") {
+		t.Fatalf("proof must describe the root and name the child: %v", fd.Proof)
 	}
 }
 
@@ -354,5 +363,15 @@ func TestOrphanedHarnessHelperWithMarkerIsSuspect(t *testing.T) {
 	}
 	if _, ok := got[3000]; ok {
 		t.Fatal("the app itself must not be flagged")
+	}
+}
+
+func TestExposedPortWarning(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 40, PPID: 1, Command: "python -m http.server 8765", Env: claudeEnv("live"), Ports: []int{8765}, Exposed: []int{8765}})
+	f.session("claude", "live", true)
+	fd := f.run(t)[40]
+	if fd.Kind != Detached || !strings.Contains(fd.Caution, ":8765 listens on all network interfaces") {
+		t.Fatalf("got %+v", fd)
 	}
 }
