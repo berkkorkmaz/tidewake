@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,7 +128,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 // claudeScratchRoot is where Claude Code keeps per-session scratch folders.
 func claudeScratchRoot() string {
-	return filepath.Join("/private/tmp", "claude-"+strconv.Itoa(os.Getuid()))
+	tmp := "/tmp"
+	if runtime.GOOS == "darwin" {
+		tmp = "/private/tmp" // /tmp is a symlink to it on macOS
+	}
+	return filepath.Join(tmp, "claude-"+strconv.Itoa(os.Getuid()))
 }
 
 // claudeSessionState applies the classifier's liveness rule to a session id.

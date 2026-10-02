@@ -186,9 +186,9 @@ func TestNeverFlagsOtherUsersSelfOrDesktopAppsWithoutCaution(t *testing.T) {
 	}
 }
 
-func TestLaunchdJobIsNeverFlagged(t *testing.T) {
+func TestServiceIsNeverFlagged(t *testing.T) {
 	f := newFixture()
-	f.add(&proc.Process{PID: 90, PPID: 1, Command: "/Applications/OrbStack.app/Contents/MacOS/OrbStack", Env: claudeEnv("dead"), LaunchdJob: true})
+	f.add(&proc.Process{PID: 90, PPID: 1, Command: "/Applications/OrbStack.app/Contents/MacOS/OrbStack", Env: claudeEnv("dead"), Service: true})
 	f.session("claude", "dead", false)
 	if _, ok := f.run(t)[90]; ok {
 		t.Fatal("launchd owns this job; it is not a leftover")

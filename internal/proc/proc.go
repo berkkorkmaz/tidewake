@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// LaunchdPID is the PID that adopts processes whose parent exited.
-const LaunchdPID = 1
+// InitPID is launchd on macOS and init/systemd on Linux; it adopts orphans.
+const InitPID = 1
 
 // Process is one process as seen at snapshot time.
 type Process struct {
@@ -30,8 +30,11 @@ type Process struct {
 	Ports []int
 	// Exposed lists ports bound to every network interface, not just loopback.
 	Exposed []int
-	// LaunchdJob marks a process launchd runs as a service; launchd owns its lifecycle.
-	LaunchdJob bool
+	// Service marks a launchd job or systemd service; its manager owns its lifecycle.
+	Service bool
+	// Reaper marks a process that adopts orphans: PID 1, or a Linux subreaper
+	// such as `systemd --user` or a container init.
+	Reaper bool
 }
 
 // Name is the base name of the executable.
@@ -80,13 +83,22 @@ func (s *Snapshot) AliveSince(pid int, started time.Time) bool {
 	return d <= StartTolerance && d >= -StartTolerance
 }
 
-// Ancestors returns the parent chain of pid, nearest first, excluding launchd.
+// IsReaper reports whether pid adopts orphans.
+func (s *Snapshot) IsReaper(pid int) bool {
+	if pid == InitPID {
+		return true
+	}
+	p := s.Procs[pid]
+	return p != nil && p.Reaper
+}
+
+// Ancestors returns the parent chain of pid, nearest first, excluding PID 1.
 func (s *Snapshot) Ancestors(pid int) []*Process {
 	var chain []*Process
 	seen := map[int]bool{pid: true}
 	for p := s.Procs[pid]; p != nil; {
 		parent := s.Procs[p.PPID]
-		if parent == nil || parent.PID == LaunchdPID || seen[parent.PID] {
+		if parent == nil || parent.PID == InitPID || seen[parent.PID] {
 			break
 		}
 		seen[parent.PID] = true

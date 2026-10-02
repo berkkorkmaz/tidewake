@@ -66,7 +66,8 @@ func (System) Collect(ctx context.Context) (*Snapshot, error) {
 		p.Cwd = cwds[pid]
 		p.Ports = ports[pid]
 		p.Exposed = exposed[pid]
-		p.LaunchdJob = jobs[pid]
+		p.Service = jobs[pid]
+		p.Reaper = pid == InitPID
 		if p.UID == me {
 			p.Env, p.Exe = readArgs(pid)
 		}

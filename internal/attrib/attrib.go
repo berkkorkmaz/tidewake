@@ -121,7 +121,7 @@ func newClassifier(in Input) *classifier {
 
 // untouchable processes are never flagged and never put in a kill list.
 func (c *classifier) untouchable(p *proc.Process) bool {
-	return p.UID != c.in.UID || p.PID == proc.LaunchdPID || p.LaunchdJob || c.selfLine[p.PID] || c.isSelfDescendant(p)
+	return p.UID != c.in.UID || p.PID == proc.InitPID || p.Reaper || p.Service || c.selfLine[p.PID] || c.isSelfDescendant(p)
 }
 
 func (c *classifier) classify(p *proc.Process) *Finding {
@@ -236,7 +236,7 @@ func (c *classifier) harnessSourcesReadable(name string) bool {
 }
 
 func (c *classifier) suspect(p *proc.Process) *Finding {
-	if p.PPID != proc.LaunchdPID {
+	if !c.in.Snap.IsReaper(p.PPID) {
 		return nil
 	}
 	leaderGone := p.PGID != p.PID && !c.in.Snap.Alive(p.PGID)
@@ -254,7 +254,7 @@ func (c *classifier) suspect(p *proc.Process) *Finding {
 	if !leaderGone {
 		group = "it leads its own process group"
 	}
-	f.Proof = []string{"parent exited, adopted by launchd", group, sign}
+	f.Proof = []string{"parent exited, adopted by " + c.parentName(p), group, sign}
 	return f
 }
 
@@ -293,9 +293,6 @@ func (c *classifier) base(p *proc.Process) *Finding {
 }
 
 func (c *classifier) parentName(p *proc.Process) string {
-	if p.PPID == proc.LaunchdPID {
-		return "launchd"
-	}
 	if parent := c.in.Snap.Get(p.PPID); parent != nil {
 		return parent.Name()
 	}
@@ -379,7 +376,7 @@ func (c *classifier) moveToRoot(f *Finding, root *proc.Process) {
 func (c *classifier) climb(p *proc.Process, f *Finding) *proc.Process {
 	for {
 		parent := c.in.Snap.Get(p.PPID)
-		if parent == nil || parent.PID == proc.LaunchdPID || parent.PGID != p.PGID || !c.belongsWith(parent, f) {
+		if parent == nil || c.in.Snap.IsReaper(parent.PID) || parent.PGID != p.PGID || !c.belongsWith(parent, f) {
 			return p
 		}
 		p = parent
