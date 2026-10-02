@@ -152,7 +152,7 @@ def main():
             bar_chart(
                 theme,
                 "What it refused to remove: 24 worktrees, 5.8 GB",
-                "Same scan. A clean git status is not enough; these would have lost work.",
+                "Same scan. 16 of the 24 looked clean to git status; removing them would still have lost work.",
                 KEPT_WORKTREES,
                 "orange",
                 lambda v: f"{int(v)}",

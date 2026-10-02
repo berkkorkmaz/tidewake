@@ -35,7 +35,7 @@ macOS for now (Apple Silicon and Intel). With Go 1.27+: `go install github.com/b
 </picture>
 
 Being careful matters as much as finding things. In the same scan, tidewake refused to remove 24
-worktrees whose `git status` looked clean:
+worktrees, and 16 of them looked clean to `git status`:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/kept-dark.svg">

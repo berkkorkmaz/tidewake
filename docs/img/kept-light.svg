@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="242" viewBox="0 0 760 242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="What it refused to remove: 24 worktrees, 5.8 GB">
 <title>What it refused to remove: 24 worktrees, 5.8 GB</title>
 <text x="0" y="24" font-size="17" font-weight="600" fill="#0b0b0b">What it refused to remove: 24 worktrees, 5.8 GB</text>
-<text x="0" y="46" font-size="13" fill="#8a8984">Same scan. A clean git status is not enough; these would have lost work.</text>
+<text x="0" y="46" font-size="13" fill="#8a8984">Same scan. 16 of the 24 looked clean to git status; removing them would still have lost work.</text>
 <line x1="300" y1="66" x2="300" y2="230" stroke="#e4e3df" stroke-width="1"/>
 <text x="288" y="90.0" font-size="13.5" text-anchor="end" fill="#52514e">Commits that exist only in that worktree</text>
 <path d="M300,74 h356.0 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-356.0 z" fill="#eb6834"/>
