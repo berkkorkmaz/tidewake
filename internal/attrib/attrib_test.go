@@ -375,3 +375,17 @@ func TestExposedPortWarning(t *testing.T) {
 		t.Fatalf("got %+v", fd)
 	}
 }
+
+// On a Linux desktop, orphans go to `systemd --user`, not PID 1.
+func TestOrphanAdoptedBySubreaper(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 500, PPID: 1, Command: "/usr/lib/systemd/systemd --user", Reaper: true, Service: true})
+	f.add(&proc.Process{PID: 600, PPID: 500, PGID: 599, Cwd: "/tmp/claude-1000/proj/abc/scratchpad", Command: "python3 job.py"})
+	fd, ok := f.run(t)[600]
+	if !ok || fd.Kind != Suspect || !strings.Contains(strings.Join(fd.Proof, ";"), "adopted by systemd") {
+		t.Fatalf("got %+v", fd)
+	}
+	if _, ok := f.run(t)[500]; ok {
+		t.Fatal("the reaper itself must not be flagged")
+	}
+}
