@@ -1,0 +1,59 @@
+{
+  "version": "2026.10.02",
+  "harnesses": {
+    "claude": {
+      "label": "Claude Code",
+      "versionCommand": ["claude", "--version"],
+      "processNames": ["claude"],
+      "processContains": ["/.local/bin/claude", "/@anthropic-ai/claude-code/", "/Claude.app/Contents/"],
+      "sessionEnv": "CLAUDE_CODE_SESSION_ID",
+      "markerEnv": ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"],
+      "agentPaths": ["/private/tmp/claude-", "/tmp/claude-", "/.claude/"],
+      "worktreePaths": ["/.claude/worktrees/"]
+    },
+    "codex": {
+      "label": "Codex",
+      "versionCommand": ["codex", "--version"],
+      "processNames": ["codex"],
+      "processContains": ["/.codex/packages/", "/Codex.app/Contents/", "/ChatGPT.app/Contents/"],
+      "sessionEnv": "CODEX_THREAD_ID",
+      "markerEnv": ["CODEX_SESSION_ID"],
+      "agentPaths": ["/.codex/"],
+      "worktreePaths": ["/.codex/worktrees/"]
+    }
+  },
+  "knownIssues": [
+    {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/1935",
+     "title": "MCP servers are not terminated when Claude Code exits", "covers": "scan lists them as leftovers of the ended session"},
+    {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/79702",
+     "title": "SessionEnd hooks do not fire on `claude -p` exit", "covers": "scan does not depend on hooks"},
+    {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/71424",
+     "title": "Claude Desktop local-agent sessions leak claude-code node processes", "covers": "scan lists them as leftovers of the ended session"},
+    {"harness": "claude", "status": "open", "url": "https://github.com/anthropics/claude-code/issues/80885",
+     "title": "Scheduled-task sessions leak orphaned background processes", "covers": "scan lists them as leftovers of the ended session"},
+    {"harness": "claude", "status": "fixed", "fixedIn": "2.1.208", "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",
+     "title": "MCP stdio stderr grew up to 64 MB per server in long sessions"},
+    {"harness": "claude", "status": "fixed", "fixedIn": "2.1.212", "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",
+     "title": "SIGTERM during a Bash tool orphaned the command's process tree in print/SDK mode"},
+    {"harness": "claude", "status": "fixed", "fixedIn": "2.1.246", "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",
+     "title": "Background retention sweep removed worktrees you created under .claude/worktrees/"},
+    {"harness": "claude", "status": "fixed", "fixedIn": "2.1.283", "url": "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md",
+     "title": "stdio MCP servers were left running when the session ended while they were still starting"},
+    {"harness": "codex", "status": "open", "url": "https://github.com/openai/codex/issues/12491",
+     "title": "Codex app does not reap MCP child processes after a task", "covers": "scan lists them as leftovers of the thread"},
+    {"harness": "codex", "status": "open", "url": "https://github.com/openai/codex/issues/30408",
+     "title": "Per-thread MCP server processes are never cleaned up", "covers": "doctor flags duplicate MCP trees"},
+    {"harness": "codex", "status": "open", "url": "https://github.com/openai/codex/issues/35217",
+     "title": "Remote SSH reconnect loop leaks orphaned app-server processes"},
+    {"harness": "codex", "status": "open", "url": "https://github.com/openai/codex/issues/34178",
+     "title": "Orphaned headless Chrome from agent-browser at ~400% CPU", "covers": "scan lists detached browsers"},
+    {"harness": "codex", "status": "open", "url": "https://github.com/openai/codex/issues/39421",
+     "title": "Marketplace upgrade staging dirs are never cleaned up"},
+    {"harness": "codex", "status": "fixed", "fixedIn": "0.148.0", "url": "https://github.com/openai/codex/releases/tag/rust-v0.148.0",
+     "title": "Local MCP server process tree cleanup was not hardened"},
+    {"harness": "codex", "status": "fixed", "fixedIn": "0.154.0", "url": "https://github.com/openai/codex/releases/tag/rust-v0.154.0",
+     "title": "Zombie processes were treated as active by the Unix PID backend"},
+    {"harness": "codex", "status": "fixed", "fixedIn": "0.158.0", "url": "https://github.com/openai/codex/releases/tag/rust-v0.158.0",
+     "title": "Child processes had no reap-only drop policy"}
+  ]
+}
