@@ -72,20 +72,20 @@ that you are done with it. The third comes from `tidewake sessions`.
 ## How it decides
 
 ```mermaid
-flowchart LR
-    P[process] --> A{under a live Claude Code<br/>or Codex process?}
-    A -- yes --> OK[not listed]
-    A -- no --> B{carries a session id,<br/>or runs in a session's<br/>scratch folder?}
-    B -- yes --> C{that session<br/>still running?}
-    C -- yes --> D[detached: shown with --all,<br/>no command]
-    C -- no --> E[leftover]
-    B -- no --> F{orphaned, group leader gone,<br/>agent path or marker?}
-    F -- yes --> G[suspect]
+flowchart TD
+    P([a process]) --> A{under a live Claude Code<br/>or Codex process?}
+    A -- yes --> OK([not listed])
+    A -- no --> B{has a session id, or runs<br/>in a session's scratch folder?}
+    B -- no --> F{orphaned and started<br/>by an agent?}
     F -- no --> OK
-    E --> H{listens on a port, desktop app,<br/>or session state unreadable?}
+    F -- yes --> G[suspect]
+    B -- yes --> C{is that session<br/>still running?}
+    C -- yes --> D([detached: listed, no command])
+    C -- no --> E[leftover]
+    E --> H{serves a port, is a desktop app,<br/>or state was unreadable?}
     G --> H
-    H -- yes --> N[note only, no command]
-    H -- no --> K[run: kill -TERM pids]
+    H -- yes --> N([listed with a note, no command])
+    H -- no --> K([listed with: kill -TERM pids])
 ```
 
 **Processes.** Claude Code and Codex give every child process its session id
