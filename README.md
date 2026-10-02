@@ -69,6 +69,7 @@ so Gatekeeper does not block it.
 | `tidewake scan --all` | Also list kept worktrees and processes whose session is still running |
 | `tidewake scan --json` | Machine-readable output |
 | `tidewake scan --root ~/src/app` | Also check a repo no session has used yet |
+| `tidewake sessions` | Live Claude Code and Codex sessions: memory, CPU, last activity, and flags for stuck, idle-but-heavy or spinning sessions |
 | `tidewake doctor` | Your Claude Code / Codex versions against known leak fixes, MCP servers duplicated per session, which state sources were readable |
 
 Set `TIDEWAKE_DEBUG=1` to print how long each stage took.
@@ -116,6 +117,22 @@ Registrations whose folder is gone are listed as `dangling` with the `git worktr
 **Disk.** Old Codex releases that are neither `current` nor in use, Docker images and build cache
 (week-old or budget-based prune commands), and the size of transcript stores. Stopped containers and
 volumes are listed for review only, since both can hold data.
+
+## Session health
+
+`tidewake sessions` lists every live Claude Code session and top-level Codex process with its memory
+(including MCP servers and shells under it), CPU use over a 3-second sample, and when its transcript
+was last written (file times only, never contents). A flag needs every one of its signals:
+
+| Flag | Signals |
+|---|---|
+| looks stuck | status `busy` for 2h+, no transcript write for 2h+, under 1% CPU during the sample |
+| idle, holding memory | status `idle`, no transcript write for 24h+, 1 GB+ in its process tree |
+| CPU while idle | status `idle` for 5m+, 50%+ CPU during the sample |
+| high memory | 4 GB+ in its process tree; names the largest part |
+
+A healthy busy session can go half an hour without writing, so the limits are in hours.
+Change them with `--stuck`, `--idle` and `--ram`. Nothing is stopped.
 
 ## Keeping up with releases
 
