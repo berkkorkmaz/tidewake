@@ -14,8 +14,7 @@ builds:
     binary: tidewake
     env:
       - CGO_ENABLED=0
-    # macOS only for now; the Linux collector is not implemented yet.
-    goos: [darwin]
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X main.version={{ .Version }}
@@ -37,6 +36,16 @@ changelog:
   sort: asc
   filters:
     exclude: ["^docs:", "^test:", "^rules-watch:"]
+
+nfpms:
+  - id: packages
+    package_name: tidewake
+    homepage: https://github.com/berkkorkmaz/tidewake
+    maintainer: Berk Korkmaz <18189523+berkkorkmaz@users.noreply.github.com>
+    description: Find what Claude Code and Codex sessions left behind
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
 
 homebrew_casks:
   - name: tidewake

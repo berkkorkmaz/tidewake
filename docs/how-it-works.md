@@ -52,6 +52,20 @@ not block removal.
 (week-old or size-budget prune commands), and scratch folders of ended Claude sessions. Stopped
 containers and volumes are listed for review only, because both can hold data.
 
+## macOS and Linux
+
+On macOS tidewake reads `ps`, `lsof` and `launchctl`; on Linux it reads `/proc` directly
+(`stat`, `cmdline`, `environ`, `cgroup`, `fd`, `net/tcp`). On both it reads the environment, working
+directory and sockets of your own processes only. Differences worth knowing:
+
+- **Who adopts orphans.** macOS: launchd. Linux: PID 1 or a subreaper such as `systemd --user` or a
+  container init like `tini`. tidewake treats all of them as "parent exited".
+- **Services.** launchd jobs and processes in a systemd `.service` cgroup are never flagged: their
+  manager owns them.
+- **Hidden environments on macOS.** macOS hides the environment of Apple's own binaries
+  (`/usr/bin/tail`, `/bin/sleep`), even from `ps -E`. Those are attributed only when they run inside a
+  session's scratch folder, which is where agents usually start them.
+
 ## Session health
 
 `tidewake sessions` shows each live Claude Code session and top-level Codex process with its memory

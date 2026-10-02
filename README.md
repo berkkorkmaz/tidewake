@@ -23,8 +23,11 @@ The last tile is one tidewake scan on the author's Mac.</sub>
 ## Install
 
 ```sh
-brew install --cask berkkorkmaz/tap/tidewake
+brew install --cask berkkorkmaz/tap/tidewake        # macOS
 ```
+
+On Linux, grab the `.deb`, `.rpm`, `.apk` or `.tar.gz` from
+[releases](https://github.com/berkkorkmaz/tidewake/releases), or `go install github.com/berkkorkmaz/tidewake/cmd/tidewake@latest`.
 
 ```sh
 tidewake scan        # what agents left behind, and how to clean it
@@ -60,6 +63,6 @@ Every rule is in [how it works](docs/how-it-works.md).
 
 ## Roadmap
 
-`tidewake clean` with preview and undo · a context audit of what loads before you type · Linux
+`tidewake clean` with preview and undo · a context audit of what loads before you type
 
-MIT licensed. macOS (Apple Silicon and Intel).
+MIT licensed. macOS and Linux, on Apple Silicon/arm64 and Intel/amd64.
