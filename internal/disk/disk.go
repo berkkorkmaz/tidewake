@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/berkkorkmaz/tidewake/internal/harness"
 	"github.com/berkkorkmaz/tidewake/internal/shell"
@@ -211,17 +213,49 @@ func ParseSize(s string) (int64, bool) {
 	return 0, false
 }
 
+// sizeWorkers bounds the goroutines walking directories in parallel; scratch
+// areas can hold half a million files, and a serial walk took 15 s.
+const sizeWorkers = 16
+
 // DirSize sums file sizes under root without following symlinks.
 func DirSize(root string) int64 {
-	var total int64
-	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || d.Type()&fs.ModeSymlink != 0 {
-			return nil
+	var total atomic.Int64
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, sizeWorkers)
+	var walk func(dir string)
+	walk = func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
 		}
-		if info, err := d.Info(); err == nil {
-			total += info.Size()
+		for _, e := range entries {
+			if e.Type()&fs.ModeSymlink != 0 {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				select {
+				case slots <- struct{}{}:
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						walk(path)
+						<-slots
+					}()
+				default:
+					walk(path)
+				}
+				continue
+			}
+			if info, err := e.Info(); err == nil {
+				total.Add(info.Size())
+			}
 		}
-		return nil
-	})
-	return total
+	}
+	if info, err := os.Lstat(root); err == nil && !info.IsDir() {
+		return info.Size()
+	}
+	walk(root)
+	wg.Wait()
+	return total.Load()
 }
