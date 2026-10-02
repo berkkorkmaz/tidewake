@@ -25,6 +25,10 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: [LICENSE, README.md]
 
+release:
+  # v0.1.0-rc1 and similar tags publish as pre-releases.
+  prerelease: auto
+
 checksum:
   name_template: checksums.txt
 
