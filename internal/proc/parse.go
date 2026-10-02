@@ -33,6 +33,7 @@ var AttributionEnv = map[string]bool{
 	"CLAUDE_CODE_CHILD_SESSION": true,
 	"CODEX_THREAD_ID":           true,
 	"CODEX_SESSION_ID":          true,
+	"CODEX_SANDBOX":             true,
 }
 
 // ParsePS parses the output of `ps` run with PSArgs in the C locale. A line

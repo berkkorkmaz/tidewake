@@ -200,6 +200,7 @@ func TestDesktopCautionSkipsHeadlessAndNonApps(t *testing.T) {
 		"/Applications/Zed.app/Contents/MacOS/zed":                                                            true,
 		"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new":                         false,
 		"/opt/homebrew/Frameworks/Python.framework/Resources/Python.app/Contents/MacOS/Python -m http.server": false,
+		"/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node kernel.js":                            false,
 	}
 	for cmd, want := range cases {
 		if got := isDesktopApp(cmd); got != want {
@@ -332,5 +333,26 @@ func TestDetachedTreeIsOneRow(t *testing.T) {
 	got := f.run(t)
 	if len(got) != 1 || got[10].Kind != Detached || got[10].TreeRSSKB != 350 || got[10].Suggest != "" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// Colleague report: orphaned Codex sandbox kernels inside ChatGPT.app were
+// treated as the harness itself and never listed.
+func TestOrphanedHarnessHelperWithMarkerIsSuspect(t *testing.T) {
+	f := newFixture()
+	kernel := "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --experimental-vm-modules /tmp/x/kernel.js --session-id abc"
+	f.add(&proc.Process{PID: 55510, PPID: 1, PGID: 2206, Command: kernel, Env: map[string]string{"CODEX_SANDBOX": "seatbelt"}})
+	f.add(&proc.Process{PID: 3000, PPID: 1, Command: "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"})
+	f.add(&proc.Process{PID: 3001, PPID: 3000, PGID: 3000, Command: kernel, Env: map[string]string{"CODEX_SANDBOX": "seatbelt"}})
+	got := f.run(t)
+	fd, ok := got[55510]
+	if !ok || fd.Kind != Suspect || fd.Harness != "codex" || fd.Suggest != "kill -TERM 55510" {
+		t.Fatalf("orphaned kernel: %+v", fd)
+	}
+	if _, ok := got[3001]; ok {
+		t.Fatal("a kernel under the running app must not be flagged")
+	}
+	if _, ok := got[3000]; ok {
+		t.Fatal("the app itself must not be flagged")
 	}
 }

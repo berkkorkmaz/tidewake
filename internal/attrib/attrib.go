@@ -242,7 +242,7 @@ func (c *classifier) suspect(p *proc.Process) *Finding {
 	if p.PGID != p.PID && !leaderGone {
 		return nil
 	}
-	harnessName, ok := c.agentPathHarness(p)
+	harnessName, sign, ok := c.agentSign(p)
 	if !ok {
 		return nil
 	}
@@ -253,19 +253,25 @@ func (c *classifier) suspect(p *proc.Process) *Finding {
 	if !leaderGone {
 		group = "it leads its own process group"
 	}
-	f.Proof = []string{"parent exited, adopted by launchd", group,
-		fmt.Sprintf("runs from a %s path", c.in.Pack.Harnesses[harnessName].Label)}
+	f.Proof = []string{"parent exited, adopted by launchd", group, sign}
 	return f
 }
 
-func (c *classifier) agentPathHarness(p *proc.Process) (string, bool) {
+// agentSign finds evidence that an agent harness started p: an agent path,
+// or a marker variable such as CODEX_SANDBOX that only harness children carry.
+func (c *classifier) agentSign(p *proc.Process) (harness, sign string, ok bool) {
 	for _, name := range c.harnessNames() {
 		h := c.in.Pack.Harnesses[name]
 		if h.InAgentPath(p.Cwd) || h.InAgentPath(p.Command) {
-			return name, true
+			return name, fmt.Sprintf("runs from a %s path", h.Label), true
+		}
+		for _, env := range h.MarkerEnv {
+			if p.Env[env] != "" {
+				return name, fmt.Sprintf("carries %s, set only for %s children", env, h.Label), true
+			}
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func (c *classifier) stuck(p *proc.Process, a *attribution) *Finding {
@@ -455,13 +461,15 @@ func joinInts(ns []int) string {
 const (
 	shortIDLen         = 8
 	appsDir            = "/Applications/"
+	appMainExecutable  = ".app/Contents/MacOS/"
 	headlessFlagPrefix = "--headless"
 )
 
-// isDesktopApp reports an app from /Applications running with a window;
-// a headless browser an agent launched does not count.
+// isDesktopApp reports the main executable of an app in /Applications running
+// with a window. Helpers inside the bundle and headless browsers do not count.
 func isDesktopApp(command string) bool {
-	return strings.HasPrefix(command, appsDir) && !strings.Contains(command, headlessFlagPrefix)
+	return strings.HasPrefix(command, appsDir) && strings.Contains(command, appMainExecutable) &&
+		!strings.Contains(command, headlessFlagPrefix)
 }
 
 func short(id string) string {

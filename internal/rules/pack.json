@@ -5,7 +5,7 @@
       "label": "Claude Code",
       "versionCommand": ["claude", "--version"],
       "processNames": ["claude"],
-      "processContains": ["/.local/bin/claude", "/@anthropic-ai/claude-code/", "/Claude.app/Contents/"],
+      "processContains": ["/.local/bin/claude", "/@anthropic-ai/claude-code/", "/Claude.app/Contents/MacOS/"],
       "sessionEnv": "CLAUDE_CODE_SESSION_ID",
       "markerEnv": ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"],
       "agentPaths": ["/private/tmp/claude-", "/tmp/claude-", "/.claude/"],
@@ -16,9 +16,9 @@
       "label": "Codex",
       "versionCommand": ["codex", "--version"],
       "processNames": ["codex"],
-      "processContains": ["/.codex/packages/", "/Codex.app/Contents/", "/ChatGPT.app/Contents/"],
+      "processContains": ["/.codex/packages/", "/Codex.app/Contents/MacOS/", "/ChatGPT.app/Contents/MacOS/"],
       "sessionEnv": "CODEX_THREAD_ID",
-      "markerEnv": ["CODEX_SESSION_ID"],
+      "markerEnv": ["CODEX_SESSION_ID", "CODEX_SANDBOX"],
       "agentPaths": ["/.codex/"],
       "worktreePaths": ["/.codex/worktrees/"]
     }

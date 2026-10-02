@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,5 +168,28 @@ func TestCodexStateDBPicksHighestGeneration(t *testing.T) {
 	got, err := codexStateDB(home)
 	if err != nil || filepath.Base(got) != "state_10.sqlite" {
 		t.Fatalf("got %s, %v", got, err)
+	}
+}
+
+func TestCodexThreadsFallBackToImmutableOpen(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "state_5.sqlite"), "")
+	var calls [][]string
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name == "claude" {
+			return []byte("[]"), nil
+		}
+		calls = append(calls, args)
+		if args[0] == "-readonly" {
+			return nil, errors.New("unable to open database file (14)")
+		}
+		return []byte(`[{"id":"t1","cwd":"/r","archived":1,"updated_at":1}]`), nil
+	}
+	st := load(t, t.TempDir(), home, run, &proc.Snapshot{Procs: map[int]*proc.Process{}})
+	if st.Sources["codex threads db"] != nil || st.Lookup("codex", "t1") == nil {
+		t.Fatalf("fallback not used: sources=%v calls=%v", st.Sources, calls)
+	}
+	if len(calls) != 2 || !strings.Contains(calls[1][1], "immutable=1") {
+		t.Fatalf("calls = %v", calls)
 	}
 }

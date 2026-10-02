@@ -107,12 +107,19 @@ func kindRank(k Kind) int {
 	return 2
 }
 
-// git runs read-only: --no-optional-locks stops `git status` from rewriting
-// the index, which would also reset the worktree's idle clock.
+// readOnlyGit keeps git from writing or downloading anything:
+//   - --no-optional-locks stops `git status` rewriting the index, which would
+//     also reset the worktree's idle clock;
+//   - trustctime=false and checkStat=minimal stop git re-reading files whose
+//     ctime changed. iCloud changes ctime when it offloads a file, and a
+//     re-read makes iCloud download it again (43 s for one worktree).
+var readOnlyGit = []string{"--no-optional-locks", "-c", "core.trustctime=false", "-c", "core.checkStat=minimal"}
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...).Output()
+	full := append(append(append([]string{}, readOnlyGit...), "-C", dir), args...)
+	out, err := exec.CommandContext(ctx, "git", full...).Output()
 	return strings.TrimSpace(string(out)), err
 }
 

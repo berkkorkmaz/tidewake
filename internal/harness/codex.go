@@ -60,10 +60,15 @@ func readCodexThreads(ctx context.Context, st *State, run Runner, home string, c
 	if err != nil {
 		return err
 	}
-	out, err := run(ctx, "sqlite3", "-readonly", "-json", db,
-		"select id, cwd, archived, updated_at, coalesce(git_branch,'') as git_branch from threads")
+	const query = "select id, cwd, archived, updated_at, coalesce(git_branch,'') as git_branch from threads"
+	out, err := run(ctx, "sqlite3", "-readonly", "-json", db, query)
 	if err != nil {
-		return fmt.Errorf("sqlite3 %s: %w", db, err)
+		// A running Codex can make a plain read-only open fail ("unable to open
+		// database file"); immutable=1 reads the file without any locking.
+		out, err = run(ctx, "sqlite3", "-json", "file:"+db+"?mode=ro&immutable=1", query)
+	}
+	if err != nil {
+		return fmt.Errorf("could not open %s read-only: %w", filepath.Base(db), err)
 	}
 	if len(out) == 0 {
 		return nil
