@@ -129,7 +129,7 @@ func TestCodexThreadLiveness(t *testing.T) {
 		{"idle too long", codexThread{UpdatedAt: old}, true, false},
 	}
 	for _, c := range cases {
-		if got, _ := codexThreadAlive(c.thread, c.running, now); got != c.alive {
+		if got, _ := codexThreadAlive(c.thread, c.running, now, DefaultCodexIdle); got != c.alive {
 			t.Errorf("%s: alive=%v want %v", c.name, got, c.alive)
 		}
 	}
@@ -191,5 +191,20 @@ func TestCodexThreadsFallBackToImmutableOpen(t *testing.T) {
 	}
 	if len(calls) != 2 || !strings.Contains(calls[1][1], "immutable=1") {
 		t.Fatalf("calls = %v", calls)
+	}
+}
+
+// Week-long parallel runs: a thread idle for 3 days is alive under --codex-idle 7d.
+func TestCodexIdleLimitIsConfigurable(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	th := codexThread{UpdatedAt: now.Add(-72 * time.Hour).Unix()}
+	if alive, _ := codexThreadAlive(th, true, now, DefaultCodexIdle); alive {
+		t.Fatal("3 days idle is past the 24h default")
+	}
+	if alive, _ := codexThreadAlive(th, true, now, 7*24*time.Hour); !alive {
+		t.Fatal("3 days idle must count as alive under a 7-day limit")
+	}
+	if got := codexIdle(Options{}); got != DefaultCodexIdle {
+		t.Fatalf("zero option must mean the default, got %v", got)
 	}
 }

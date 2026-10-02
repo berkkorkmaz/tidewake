@@ -15,6 +15,9 @@ type Options struct {
 	CodexHome  string // usually ~/.codex
 	Run        Runner
 	Now        time.Time
+	// CodexIdle is how long a Codex thread may sit idle and still count as
+	// alive; zero means DefaultCodexIdle.
+	CodexIdle time.Duration
 }
 
 // Load reads every available state source. A missing source is recorded in
@@ -30,7 +33,14 @@ func Load(ctx context.Context, opts Options, snap *proc.Snapshot, pack *rules.Pa
 
 	codexH := pack.Harnesses[codex]
 	running := AnyRunning(snap, func(p *proc.Process) bool { return codexH.IsHarnessProcess(p.Name(), p.Command) })
-	st.Sources["codex threads db"] = readCodexThreads(ctx, st, opts.Run, opts.CodexHome, running, opts.Now)
+	st.Sources["codex threads db"] = readCodexThreads(ctx, st, opts.Run, opts.CodexHome, running, opts.Now, codexIdle(opts))
 	st.Sources["codex chat_processes.json"] = readCodexChatProcesses(st, opts.CodexHome, snap)
 	return st
+}
+
+func codexIdle(opts Options) time.Duration {
+	if opts.CodexIdle > 0 {
+		return opts.CodexIdle
+	}
+	return DefaultCodexIdle
 }

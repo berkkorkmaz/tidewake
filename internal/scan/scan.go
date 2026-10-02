@@ -26,6 +26,7 @@ type Options struct {
 	CodexHome  string
 	Roots      []string // extra paths whose repos are scanned for worktrees
 	Idle       time.Duration
+	CodexIdle  time.Duration // see harness.Options.CodexIdle
 	Collector  proc.Collector
 	Run        harness.Runner
 }
@@ -73,6 +74,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	stage("processes")
 	st := harness.Load(ctx, harness.Options{
 		ClaudeHome: opts.ClaudeHome, CodexHome: opts.CodexHome, Run: opts.Run, Now: snap.Taken,
+		CodexIdle: opts.CodexIdle,
 	}, snap, pack)
 
 	res := &Result{Taken: snap.Taken, RulesVersion: pack.Version, Sources: map[string]string{},

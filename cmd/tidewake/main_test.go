@@ -28,3 +28,10 @@ func TestSessionsRejectsBadRAM(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut.String())
 	}
 }
+
+func TestScanRejectsNonPositiveCodexIdle(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run(context.Background(), []string{"scan", "--codex-idle", "0s"}, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "--codex-idle") {
+		t.Fatalf("code=%d stderr=%q", code, errOut.String())
+	}
+}

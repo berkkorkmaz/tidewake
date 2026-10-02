@@ -16,9 +16,10 @@ import (
 
 const codex = "codex"
 
-// CodexIdleThreshold is how long an unarchived thread may go without an update
-// before tidewake treats it as ended. Codex has no per-thread liveness signal.
-const CodexIdleThreshold = 24 * time.Hour
+// DefaultCodexIdle is how long an unarchived thread may go without an update
+// before tidewake treats it as ended. Codex has no per-thread liveness signal,
+// so people running threads idle for days raise it with --codex-idle.
+const DefaultCodexIdle = 24 * time.Hour
 
 type codexThread struct {
 	ID        string `json:"id"`
@@ -55,7 +56,7 @@ func stateGen(path string) int {
 
 // readCodexThreads reads the undocumented threads table via the sqlite3 CLI,
 // opened read-only so a running Codex is never disturbed.
-func readCodexThreads(ctx context.Context, st *State, run Runner, home string, codexRunning bool, now time.Time) error {
+func readCodexThreads(ctx context.Context, st *State, run Runner, home string, codexRunning bool, now time.Time, idleLimit time.Duration) error {
 	db, err := codexStateDB(home)
 	if err != nil {
 		return err
@@ -78,13 +79,13 @@ func readCodexThreads(ctx context.Context, st *State, run Runner, home string, c
 		return fmt.Errorf("codex threads: %w", err)
 	}
 	for _, t := range threads {
-		alive, why := codexThreadAlive(t, codexRunning, now)
+		alive, why := codexThreadAlive(t, codexRunning, now, idleLimit)
 		st.add(&Session{Harness: codex, ID: t.ID, Name: t.GitBranch, Cwd: t.Cwd, Alive: alive, Why: why})
 	}
 	return nil
 }
 
-func codexThreadAlive(t codexThread, codexRunning bool, now time.Time) (bool, string) {
+func codexThreadAlive(t codexThread, codexRunning bool, now time.Time, idleLimit time.Duration) (bool, string) {
 	switch {
 	case t.Archived != 0:
 		return false, "thread is archived"
@@ -92,7 +93,7 @@ func codexThreadAlive(t codexThread, codexRunning bool, now time.Time) (bool, st
 		return false, "no Codex process is running"
 	}
 	idle := now.Sub(time.Unix(t.UpdatedAt, 0))
-	if idle > CodexIdleThreshold {
+	if idle > idleLimit {
 		return false, fmt.Sprintf("thread idle for %dd", int(idle.Hours()/24))
 	}
 	return true, "thread updated recently and Codex is running"

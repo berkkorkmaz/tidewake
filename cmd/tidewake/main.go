@@ -32,7 +32,7 @@ const commandTimeout = 20 * time.Second
 const usage = `tidewake finds what your Claude Code and Codex sessions left behind.
 
 Usage:
-  tidewake scan    [--json] [--all] [--root DIR]... [--idle 48h]
+  tidewake scan    [--json] [--all] [--root DIR]... [--idle 48h] [--codex-idle 24h]
   tidewake doctor  [--json]
   tidewake sessions [--json] [--stuck 2h] [--idle 24h] [--ram 4GB] [--sample 3s]
   tidewake version
@@ -99,9 +99,15 @@ func cmdScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	all := fs.Bool("all", false, "also list kept worktrees and detached processes")
 	idle := fs.Duration("idle", worktree.DefaultIdle, "minimum idle time before a worktree is suggested for removal")
+	codexIdle := fs.Duration("codex-idle", harness.DefaultCodexIdle,
+		"how long a Codex thread may sit idle and still count as running (raise it for week-long runs)")
 	var roots rootList
 	fs.Var(&roots, "root", "extra directory inside a repo to check for worktrees (repeatable)")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *codexIdle <= 0 {
+		fmt.Fprintln(stderr, "tidewake: --codex-idle must be positive, e.g. 24h or 168h")
 		return 2
 	}
 	opts, err := scanOptions(roots, *idle)
@@ -109,6 +115,7 @@ func cmdScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "tidewake:", err)
 		return 1
 	}
+	opts.CodexIdle = *codexIdle
 	res, err := scan.Run(ctx, opts)
 	if err != nil {
 		fmt.Fprintln(stderr, "tidewake:", err)
