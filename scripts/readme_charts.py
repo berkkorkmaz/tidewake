@@ -26,11 +26,11 @@ KEPT_WORKTREES = [  # (reason, count) from the same scan: 24 kept, 5.8 GB
     ("Unpushed commits", 1),
     ("Used in the last 48 hours", 1),
 ]
-TILES = [  # (value, label)
-    ("30.5 GB", "disk that can be freed"),
-    ("303 MB", "RAM held by leftovers"),
-    ("24", "worktrees kept on purpose"),
-    ("1", "session stuck for 3 days"),
+TILES = [  # (value, label); first three are user reports in public GitHub issues
+    ("129 GB", "RAM, one Claude process"),  # anthropics/claude-code#11315
+    ("1,300+", "zombie Codex processes"),  # openai/codex#12491
+    ("154", "orphaned processes"),  # anthropics/claude-code#17391 (comment)
+    ("30.5 GB", "found in one scan"),  # the scan above
 ]
 
 THEMES = {
@@ -115,9 +115,9 @@ def tiles(theme):
     out = [
         (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{h}" viewBox="0 0 {WIDTH} {h}" '
-            f'font-family="{FONT}" role="img" aria-label="tidewake on one developer Mac">'
+            f'font-family="{FONT}" role="img" aria-label="What agents leave behind">'
         ),
-        "<title>What one tidewake scan found on one developer Mac</title>",
+        "<title>What coding agents leave behind</title>",
     ]
     for i, (value, label) in enumerate(TILES):
         x = i * (w + gap)
