@@ -306,3 +306,17 @@ func TestDoesNotClimbIntoAnotherGroup(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// A child that belongs to a different ended session gets its own row and
+// proof instead of riding along in another session's kill list.
+func TestOtherEndedSessionGetsItsOwnRow(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 100, PPID: 1, Command: "bash runner.sh", Env: claudeEnv("a")})
+	f.add(&proc.Process{PID: 101, PPID: 100, PGID: 101, Command: "node server.js", Env: claudeEnv("b")})
+	f.session("claude", "a", false)
+	f.session("claude", "b", false)
+	got := f.run(t)
+	if got[100].Suggest != "kill -TERM 100" || got[101].Suggest != "kill -TERM 101" || got[101].SessionID != "b" {
+		t.Fatalf("got a=%+v b=%+v", got[100], got[101])
+	}
+}

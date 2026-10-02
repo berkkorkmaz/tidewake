@@ -46,6 +46,9 @@ const maxNamedIgnored = 3
 
 const evalWorkers = 8
 
+// gitTimeout bounds one git call; a timed-out check counts as failed, which keeps the worktree.
+const gitTimeout = 30 * time.Second
+
 // Worktree is one linked worktree with its verdict.
 type Worktree struct {
 	Repo       string        `json:"repo"`
@@ -107,6 +110,8 @@ func kindRank(k Kind) int {
 // git runs read-only: --no-optional-locks stops `git status` from rewriting
 // the index, which would also reset the worktree's idle clock.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
 	out, err := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...).Output()
 	return strings.TrimSpace(string(out)), err
 }
@@ -188,7 +193,12 @@ func evaluateAll(ctx context.Context, wts []Worktree, opts Options) {
 	wg.Wait()
 }
 
+// slowWorktree is when TIDEWAKE_DEBUG reports a worktree's step timings.
+const slowWorktree = 2 * time.Second
+
 func evaluate(ctx context.Context, w *Worktree, opts Options) {
+	steps := newStepTimer()
+	defer steps.report(w.Path)
 	w.Owner = owner(w.Path, opts.OwnerPaths)
 	// git refuses to prune locked entries, so a locked one is kept even when its directory is gone.
 	if _, err := os.Stat(w.Path); err != nil && w.Locked {
@@ -202,6 +212,7 @@ func evaluate(ctx context.Context, w *Worktree, opts Options) {
 		return
 	}
 	w.SizeBytes, w.RegenBytes = measure(w.Path)
+	steps.mark("measure")
 	w.Idle = idleFor(w.Path, opts.Now)
 
 	resolved, err := filepath.EvalSymlinks(w.Path)
@@ -211,6 +222,7 @@ func evaluate(ctx context.Context, w *Worktree, opts Options) {
 	if users := opts.InUse(resolved); len(users) > 0 {
 		w.Reasons = append(w.Reasons, "in use by "+strings.Join(users, ", "))
 	}
+	steps.mark("in-use")
 	if status, err := git(ctx, w.Path, "status", "--porcelain", "--ignored", "--untracked-files=normal"); err != nil {
 		w.Reasons = append(w.Reasons, "git status failed")
 	} else {
@@ -223,16 +235,19 @@ func evaluate(ctx context.Context, w *Worktree, opts Options) {
 			w.Reasons = append(w.Reasons, "keeps ignored files that are not rebuildable: "+nameSome(kept))
 		}
 	}
+	steps.mark("status")
 	if pushed, err := onRemote(ctx, w.Path); err != nil {
 		w.Reasons = append(w.Reasons, "could not check for unpushed commits")
 	} else if !pushed {
 		w.Reasons = append(w.Reasons, "has commits not on any remote")
 	}
+	steps.mark("on-remote")
 	// Removing a worktree deletes its HEAD reflog, the only pointer to commits
 	// made here and then left behind by a checkout.
 	if reason := reflogOnlyCommits(ctx, w.Path); reason != "" {
 		w.Reasons = append(w.Reasons, reason)
 	}
+	steps.mark("reflog")
 	if w.Idle < opts.Idle {
 		w.Reasons = append(w.Reasons, "touched "+humanDuration(w.Idle)+" ago")
 	}
@@ -420,4 +435,31 @@ func humanDuration(d time.Duration) string {
 		return strconv.Itoa(int(d.Hours())) + "h"
 	}
 	return strconv.Itoa(int(d.Hours()/24)) + "d"
+}
+
+type stepTimer struct {
+	on    bool
+	start time.Time
+	last  time.Time
+	parts []string
+}
+
+func newStepTimer() *stepTimer {
+	now := time.Now()
+	return &stepTimer{on: os.Getenv("TIDEWAKE_DEBUG") != "", start: now, last: now}
+}
+
+func (s *stepTimer) mark(name string) {
+	if !s.on {
+		return
+	}
+	now := time.Now()
+	s.parts = append(s.parts, name+"="+now.Sub(s.last).Round(time.Millisecond).String())
+	s.last = now
+}
+
+func (s *stepTimer) report(path string) {
+	if s.on && time.Since(s.start) > slowWorktree {
+		fmt.Fprintf(os.Stderr, "tidewake:   slow worktree %s: %s\n", path, strings.Join(s.parts, " "))
+	}
 }
