@@ -196,7 +196,7 @@ func TestParsePorcelainSkipsMain(t *testing.T) {
 }
 
 func TestParseStatus(t *testing.T) {
-	out := " M a.txt\n!! node_modules/\n!! .env\n!! flows/.pytest_cache/\n!! data/dump.parquet\n!! pkg/__pycache__/x.pyc\n!! .DS_Store\n"
+	out := " M a.txt\n!! node_modules/\n!! infra/prod/.terraform/\n!! dbt_packages/\n!! .env\n!! flows/.pytest_cache/\n!! data/dump.parquet\n!! pkg/__pycache__/x.pyc\n!! .DS_Store\n"
 	dirty, kept := ParseStatus(out)
 	if !dirty {
 		t.Error("modified file not seen")

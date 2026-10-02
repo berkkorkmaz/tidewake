@@ -35,7 +35,7 @@ var regenerableDirs = map[string]bool{
 	"dist": true, "build": true, ".nuxt": true, ".next": true, ".output": true, ".turbo": true,
 	"__pycache__": true, ".pytest_cache": true, ".gradle": true, "DerivedData": true,
 	".ruff_cache": true, ".mypy_cache": true, ".tox": true, "htmlcov": true, ".parcel-cache": true,
-	".svelte-kit": true,
+	".svelte-kit": true, ".terraform": true, "dbt_packages": true,
 }
 
 // regenerableFiles are ignored files that hold no work.

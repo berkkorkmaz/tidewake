@@ -298,13 +298,16 @@ func (c *classifier) parentName(p *proc.Process) string {
 // cleanable reports a verdict whose tree may be gathered and stopped.
 func cleanable(k Kind) bool { return k == Leftover || k == Suspect }
 
+// grouped reports a verdict shown as one row per process tree.
+func grouped(k Kind) bool { return cleanable(k) || k == Detached }
+
 // buildTrees climbs each cleanable finding to its orphaned group root, gathers
 // the tree under it (cut at anything that belongs elsewhere), and drops
 // findings already covered by another tree.
 func (c *classifier) buildTrees(flagged map[int]*Finding) []Finding {
 	roots := map[int]*Finding{}
 	for _, f := range flagged {
-		if !cleanable(f.Kind) {
+		if !grouped(f.Kind) {
 			continue
 		}
 		root := c.climb(c.in.Snap.Get(f.PID), f)
@@ -331,7 +334,7 @@ func (c *classifier) buildTrees(flagged map[int]*Finding) []Finding {
 		out = append(out, *f)
 	}
 	for _, f := range flagged {
-		if cleanable(f.Kind) || covered[f.PID] {
+		if grouped(f.Kind) || covered[f.PID] {
 			continue
 		}
 		f.TreePIDs, f.TreeRSSKB = []int{f.PID}, c.in.Snap.Get(f.PID).RSSKB
@@ -365,6 +368,9 @@ func (c *classifier) belongsWith(p *proc.Process, f *Finding) bool {
 	}
 	if f.SessionID != "" && (a.harness != f.Harness || a.sessionID != f.SessionID) {
 		return false
+	}
+	if f.Kind == Detached {
+		return true // same running session: one row, still no command
 	}
 	sess := c.in.State.Lookup(a.harness, a.sessionID)
 	return sess == nil || !sess.Alive

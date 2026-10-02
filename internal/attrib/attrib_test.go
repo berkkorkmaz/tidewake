@@ -320,3 +320,17 @@ func TestOtherEndedSessionGetsItsOwnRow(t *testing.T) {
 		t.Fatalf("got a=%+v b=%+v", got[100], got[101])
 	}
 }
+
+// A running session's headless browser is one row, not one per helper.
+func TestDetachedTreeIsOneRow(t *testing.T) {
+	scratch := "--user-data-dir=/private/tmp/claude-501/-Users-me-p/c5f4b453-998d-4aab-b9b8-76f615347856/scratchpad/profile"
+	f := newFixture()
+	f.add(&proc.Process{PID: 10, PPID: 1, PGID: 9, RSSKB: 200, Command: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new " + scratch})
+	f.add(&proc.Process{PID: 11, PPID: 10, PGID: 9, RSSKB: 100, Command: "/Applications/Brave Browser.app/Contents/Frameworks/Helper --type=renderer " + scratch})
+	f.add(&proc.Process{PID: 12, PPID: 10, PGID: 9, RSSKB: 50, Command: "/Applications/Brave Browser.app/Contents/Frameworks/Helper --type=gpu " + scratch})
+	f.session("claude", "c5f4b453-998d-4aab-b9b8-76f615347856", true)
+	got := f.run(t)
+	if len(got) != 1 || got[10].Kind != Detached || got[10].TreeRSSKB != 350 || got[10].Suggest != "" {
+		t.Fatalf("got %+v", got)
+	}
+}
