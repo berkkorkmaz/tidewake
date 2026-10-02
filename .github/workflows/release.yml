@@ -24,5 +24,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Several tags can point at one commit (v0.1.0-rc5 and v0.1.0); build the pushed one.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
           # Fine-grained token with contents:write on berkkorkmaz/homebrew-tap only.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
