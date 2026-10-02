@@ -29,6 +29,10 @@ never tokens, and checks the session against each tool's own state (`claude agen
 must match. A row's kill list stops at anything that belongs elsewhere (a live session, another
 session, a launchd service, the shell you ran tidewake from) and says how many it left out.
 
+Codex has no per-thread "alive" signal, so an unarchived thread idle for more than 24 hours counts
+as ended. If you keep Codex threads idle for days, raise that with `tidewake scan --codex-idle 168h`.
+Processes still under a live Codex process are never flagged either way.
+
 **Worktrees.** A worktree is `removable` only when every check passes:
 
 <picture>
