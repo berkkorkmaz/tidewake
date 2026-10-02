@@ -208,3 +208,19 @@ func TestCodexIdleLimitIsConfigurable(t *testing.T) {
 		t.Fatalf("zero option must mean the default, got %v", got)
 	}
 }
+
+func TestLoadPassesCodexIdleThrough(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "state_5.sqlite"), "")
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	threads := `[{"id":"t1","cwd":"/r","archived":0,"updated_at":` + strconv.FormatInt(now.Add(-72*time.Hour).Unix(), 10) + `}]`
+	snap := &proc.Snapshot{Procs: map[int]*proc.Process{7: {PID: 7, Command: "/Users/me/.codex/packages/standalone/current/codex"}}}
+	pack, _ := rules.Load()
+	run := fakeRunner(map[string]string{"claude": "[]", "sqlite3": threads}, nil)
+	for limit, want := range map[time.Duration]bool{0: false, 7 * 24 * time.Hour: true} {
+		st := Load(context.Background(), Options{ClaudeHome: t.TempDir(), CodexHome: home, Run: run, Now: now, CodexIdle: limit}, snap, pack)
+		if s := st.Lookup("codex", "t1"); s == nil || s.Alive != want {
+			t.Errorf("CodexIdle=%v: got %+v, want alive=%v", limit, s, want)
+		}
+	}
+}
