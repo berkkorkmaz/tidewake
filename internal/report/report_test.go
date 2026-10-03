@@ -93,10 +93,18 @@ func TestDisplayCommand(t *testing.T) {
 		"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --headless=new":                                                               "Brave Browser --headless=new",
 		"node scripts/start.mjs": "node scripts/start.mjs",
 		"/usr/bin/tail":          "tail",
+		"/Applications/Sublime Text.app/Contents/MacOS/plugin_host-3.8 92600 /Users/me/Library/Application Support/Sublime Text/Packages": "plugin_host-3.8 92600 /Users/me/Library/Application Support/Sublime Text/Packages",
 	}
 	for in, want := range cases {
 		if got := displayCommand(in); got != want {
 			t.Errorf("displayCommand(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestDisplayCommandUsesExe(t *testing.T) {
+	cmd := "/Users/me/My Tools/run server --port 1"
+	if got := displayCommand(cmd, "/Users/me/My Tools/run server"); got != "run server --port 1" {
+		t.Fatalf("got %q", got)
 	}
 }

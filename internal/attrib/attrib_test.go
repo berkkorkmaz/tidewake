@@ -181,8 +181,8 @@ func TestNeverFlagsOtherUsersSelfOrDesktopAppsWithoutCaution(t *testing.T) {
 	if _, ok := got[81]; ok {
 		t.Error("flagged itself")
 	}
-	if got[82].Caution == "" {
-		t.Error("desktop app must carry a caution")
+	if _, ok := got[82]; ok {
+		t.Error("a desktop app the user runs is not a leftover, even if an agent started it")
 	}
 }
 
@@ -387,5 +387,44 @@ func TestOrphanAdoptedBySubreaper(t *testing.T) {
 	}
 	if _, ok := f.run(t)[500]; ok {
 		t.Fatal("the reaper itself must not be flagged")
+	}
+}
+
+// tidewake#1: Sublime Text started from a Codex shell inherited its thread id.
+// The app and everything under it belong to the app, not the ended thread.
+func TestAppStartedByAgentIsNotALeftover(t *testing.T) {
+	codexEnv := map[string]string{"CODEX_THREAD_ID": "01a03100"}
+	app := "/Applications/Sublime Text.app/Contents/MacOS/"
+	f := newFixture()
+	f.add(&proc.Process{PID: 92600, PPID: 1, Command: app + "sublime_text", Env: codexEnv})
+	f.add(&proc.Process{PID: 92602, PPID: 1, Command: app + "crash_handler --no-rate-limit --database=/Users/me/Library/Caches/Sublime Text", Env: codexEnv})
+	f.add(&proc.Process{PID: 92625, PPID: 92600, Command: app + "plugin_host-3.8 92600 /Users/me/Library/Application Support/Sublime Text/Packages", Env: codexEnv, Ports: []int{4001}})
+	f.add(&proc.Process{PID: 92700, PPID: 92625, Command: "node /Users/me/.lsp/server.js", Env: codexEnv})
+	f.session("codex", "01a03100", false)
+	if got := f.run(t); len(got) != 0 {
+		t.Fatalf("nothing under an installed app may be flagged, got %+v", got)
+	}
+}
+
+// An ended session's shell that opened an app: the shell is a leftover, the
+// app is cut out of its kill list.
+func TestKillListStopsAtUserApp(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 300, PPID: 1, Command: "-zsh", Env: claudeEnv("dead")})
+	f.add(&proc.Process{PID: 301, PPID: 300, PGID: 301, Command: "/Applications/Zed.app/Contents/MacOS/zed .", Env: claudeEnv("dead")})
+	f.session("claude", "dead", false)
+	fd := f.run(t)[300]
+	if fd.Suggest != "kill -TERM 300" {
+		t.Fatalf("kill list must leave the app out: %+v", fd)
+	}
+}
+
+// Homebrew's Python.app is a tool, not an installed app: its orphans still count.
+func TestBundlesOutsideApplicationsAreNotApps(t *testing.T) {
+	f := newFixture()
+	f.add(&proc.Process{PID: 400, PPID: 1, Command: "/opt/homebrew/Frameworks/Python.framework/Resources/Python.app/Contents/MacOS/Python -m http.server 8791", Env: claudeEnv("dead")})
+	f.session("claude", "dead", false)
+	if fd := f.run(t)[400]; fd.Kind != Leftover {
+		t.Fatalf("got %+v", fd)
 	}
 }

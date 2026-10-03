@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,9 @@ import (
 	"github.com/berkkorkmaz/tidewake/internal/scan"
 	"github.com/berkkorkmaz/tidewake/internal/worktree"
 )
+
+// appExecutableDir is where a macOS app bundle keeps its programs.
+const appExecutableDir = ".app/Contents/MacOS/"
 
 const (
 	maxSessionName = 20
@@ -79,7 +83,7 @@ func (p printer) processes(r *scan.Result, all bool) {
 	}
 	for _, f := range shown {
 		p.line("  %-8s %-6s %-30s pid %-6d %5s  %8s  %s%s", f.Kind, f.Harness, session(f), f.PID,
-			age(r.Taken, f.Started), mem(f.TreeRSSKB), p.truncate(displayCommand(f.Command)), portsTag(f.Ports))
+			age(r.Taken, f.Started), mem(f.TreeRSSKB), p.truncate(displayCommand(f.Command, f.Exe)), portsTag(f.Ports))
 		if len(f.TreePIDs) > 1 {
 			p.line("           tree: %d processes", len(f.TreePIDs))
 		}
@@ -282,10 +286,23 @@ func shortReason(s string) string {
 }
 
 // displayCommand shows the program's base name and its arguments, so the part
-// that tells two rows apart is not cut off by a long install path.
-func displayCommand(cmd string) string {
+// that tells two rows apart is not cut off by a long install path. exe, when
+// known, is the kernel's executable path and marks exactly where argv0 ends.
+func displayCommand(cmd string, exe ...string) string {
+	if len(exe) > 0 && exe[0] != "" && strings.HasPrefix(cmd, exe[0]) {
+		return filepath.Base(exe[0]) + cmd[len(exe[0]):]
+	}
 	if !strings.HasPrefix(cmd, "/") {
 		return cmd
+	}
+	// Inside an app bundle the program sits right after Contents/MacOS/, and
+	// paths in its arguments must not be mistaken for it.
+	if i := strings.Index(cmd, appExecutableDir); i >= 0 {
+		rest := cmd[i+len(appExecutableDir):]
+		if sp := strings.IndexByte(rest, ' '); sp >= 0 {
+			return rest[:sp] + rest[sp:]
+		}
+		return rest
 	}
 	prefix := cmd
 	if i := strings.Index(cmd, " -"); i >= 0 {

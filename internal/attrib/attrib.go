@@ -42,6 +42,7 @@ type Finding struct {
 	PID         int       `json:"pid"`
 	PPID        int       `json:"ppid"`
 	Command     string    `json:"command"`
+	Exe         string    `json:"exe,omitempty"`
 	Cwd         string    `json:"cwd,omitempty"`
 	Started     time.Time `json:"started"`
 	TreePIDs    []int     `json:"treePids"`
@@ -133,13 +134,86 @@ func (c *classifier) classify(p *proc.Process) *Finding {
 	if p.Exiting() && (isHarness || attr != nil) {
 		return c.stuck(p, attr)
 	}
-	if isHarness || c.liveHarnessAncestor(p) != nil {
+	if isHarness || c.liveHarnessAncestor(p) != nil || c.ownedByApp(p) {
 		return nil
 	}
 	if attr != nil {
 		return c.attributed(p, *attr)
 	}
 	return c.suspect(p)
+}
+
+// ownedByApp reports a process that belongs to an installed desktop app: it
+// runs from inside a non-harness app bundle, or under one that is running.
+// An app started from an agent's shell inherits the session id, but the user
+// keeps using it; its processes are not leftovers (tidewake issue #1).
+func (c *classifier) ownedByApp(p *proc.Process) bool {
+	if c.inUserApp(p) {
+		return true
+	}
+	for _, a := range c.in.Snap.Ancestors(p.PID) {
+		if c.inUserApp(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// inUserApp reports a process whose executable sits in an app bundle under
+// /Applications or ~/Applications, unless the bundle is an agent harness's own
+// app or the app runs under automation (a headless or remote-debugged
+// browser an agent drives is the agent's tool, not the user's app).
+func (c *classifier) inUserApp(p *proc.Process) bool {
+	bundle := appBundle(p)
+	if bundle == "" {
+		return false
+	}
+	for _, h := range c.in.Pack.Harnesses {
+		for _, sig := range h.ProcessContains {
+			if i := strings.Index(sig, ".app/"); i >= 0 && strings.HasSuffix(bundle, sig[:i+len(".app")]) {
+				return false // the harness's own app (Claude, Codex, ChatGPT)
+			}
+		}
+	}
+	return !automated(c.bundleRoot(p, bundle))
+}
+
+// bundleRoot is the topmost running process of the same bundle at or above p,
+// where an app's launch flags live (helpers do not repeat them).
+func (c *classifier) bundleRoot(p *proc.Process, bundle string) *proc.Process {
+	root := p
+	for _, a := range c.in.Snap.Ancestors(p.PID) {
+		if appBundle(a) != bundle {
+			break
+		}
+		root = a
+	}
+	return root
+}
+
+// automationFlags mark a browser started by a tool such as Playwright or an MCP server.
+var automationFlags = []string{"--headless", "--remote-debugging-port", "--remote-debugging-pipe", "--enable-automation"}
+
+func automated(p *proc.Process) bool {
+	for _, f := range automationFlags {
+		if strings.Contains(p.Command, f) {
+			return true
+		}
+	}
+	return false
+}
+
+// appBundlePattern finds an installed app bundle. Bundles elsewhere, such as
+// Homebrew's Python.app, are tools, not apps the user opened.
+var appBundlePattern = regexp.MustCompile(`^((?:/Users/[^/]+)?/Applications/(?:[^/]+/)*?[^/]+\.app)/Contents/`)
+
+func appBundle(p *proc.Process) string {
+	for _, path := range []string{p.Exe, p.Command} {
+		if m := appBundlePattern.FindStringSubmatch(path); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 func (c *classifier) isSelfDescendant(p *proc.Process) bool {
@@ -289,7 +363,7 @@ func (c *classifier) stuck(p *proc.Process, a *attribution) *Finding {
 }
 
 func (c *classifier) base(p *proc.Process) *Finding {
-	return &Finding{PID: p.PID, PPID: p.PPID, Command: p.Command, Cwd: p.Cwd, Started: p.Started}
+	return &Finding{PID: p.PID, PPID: p.PPID, Command: p.Command, Exe: p.Exe, Cwd: p.Cwd, Started: p.Started}
 }
 
 func (c *classifier) parentName(p *proc.Process) string {
@@ -385,7 +459,7 @@ func (c *classifier) climb(p *proc.Process, f *Finding) *proc.Process {
 
 // belongsWith reports whether p may be stopped together with finding f.
 func (c *classifier) belongsWith(p *proc.Process, f *Finding) bool {
-	if c.untouchable(p) || c.harnessPIDs[p.PID] != "" {
+	if c.untouchable(p) || c.harnessPIDs[p.PID] != "" || c.inUserApp(p) {
 		return false
 	}
 	a := c.attribute(p)
